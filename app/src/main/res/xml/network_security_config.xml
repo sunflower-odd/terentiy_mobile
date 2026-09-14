@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Конфигурация release-сборки: открытый трафик запрещён везде, кроме loopback
+  и адреса хост-машины эмулятора. Для отладочной сборки действует
+  app/src/debug/res/xml/network_security_config.xml, где HTTP разрешён шире,
+  потому что backend Stage 01 живёт на ноутбуке с произвольным LAN-адресом.
+
+  Матчинг в network-security-config идёт по имени хоста; includeSubdomains
+  на IP-литерале не расширяет диапазон, поэтому перечислять подсети здесь
+  бессмысленно — отсюда и разделение по типам сборки.
+
+  Требование TLS для любого внешнего стенда: docs/backlog-mobile.md §7.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,87 @@
+<resources>
+    <string name="app_name">Терентий</string>
+
+    <!-- Общее -->
+    <string name="common_continue">Продолжить</string>
+    <string name="common_close">Закрыть</string>
+
+    <!-- Экран активации -->
+    <string name="activation_title">Подключение к установке</string>
+    <string name="activation_subtitle">Введите код установки, который выдал установщик, и придумайте PIN для входа в приложение.</string>
+    <string name="activation_server_url">Адрес сервера</string>
+    <string name="activation_server_url_hint">Например, http://192.168.1.10:8080</string>
+    <string name="activation_code">Код установки</string>
+    <string name="activation_name">Как к вам обращаться</string>
+    <string name="activation_pin">PIN из шести цифр</string>
+    <string name="activation_pin_repeat">Повторите PIN</string>
+    <string name="activation_submit">Активировать</string>
+    <string name="activation_have_account">Устройство уже активировано — войти по PIN</string>
+
+    <!-- Экран входа -->
+    <string name="pin_title">Вход</string>
+    <string name="pin_subtitle">Введите PIN, который вы задали при активации.</string>
+    <string name="pin_field">PIN</string>
+    <string name="pin_submit">Войти</string>
+    <string name="pin_reactivate">Забыли PIN? Активировать заново</string>
+    <string name="pin_reactivate_warning">Повторная активация создаст новое устройство на сервере. Прежнее останется в списке, но перестанет использоваться.</string>
+    <string name="pin_locked">Слишком много попыток. Повторите через %1$d с.</string>
+
+    <!-- Главный экран -->
+    <string name="home_greeting">Здравствуйте, %1$s</string>
+    <string name="home_greeting_anonymous">Здравствуйте</string>
+    <string name="home_status_title">Статус наблюдения</string>
+    <string name="home_state_watching">Наблюдение активно</string>
+    <string name="home_state_camera_unavailable">Камера недоступна</string>
+    <string name="home_state_agent_offline">Локальный агент недоступен</string>
+    <string name="home_state_ml_not_ready">Анализ не выполняется</string>
+    <string name="home_state_no_agent">Агент не подключён</string>
+
+    <string name="home_state_watching_hint">Камера на связи, кадры анализируются.</string>
+    <string name="home_state_camera_unavailable_hint">Агент работает, но видеопоток не поступает.</string>
+    <string name="home_state_agent_offline_hint">Компьютер с агентом выключен или потерял связь с сервером.</string>
+    <string name="home_state_ml_not_ready_hint">Кадры поступают, но модель распознавания не запущена.</string>
+    <string name="home_state_no_agent_hint">К вашей установке пока не подключено ни одного агента.</string>
+
+    <string name="home_offline_banner">Нет связи с сервером. Показаны последние известные данные.</string>
+    <string name="home_last_frame">Последний кадр: %1$s</string>
+    <string name="home_last_frame_never">Кадров ещё не было</string>
+    <string name="home_no_data_yet">Данные ещё не поступали</string>
+    <string name="home_camera">Камера: %1$s</string>
+    <string name="home_software_version">Версия ПО: %1$s</string>
+    <string name="home_get_view">Получить вид</string>
+    <string name="home_flag_camera">Камера</string>
+    <string name="home_flag_stream">Видеопоток</string>
+    <string name="home_flag_ml">Распознавание</string>
+    <string name="home_flag_yes">в норме</string>
+    <string name="home_flag_no">недоступно</string>
+    <string name="home_flag_unknown">неизвестно</string>
+
+    <!-- Просмотр кадра -->
+    <string name="image_title">Вид с камеры</string>
+    <string name="image_tab_person">Люди</string>
+    <string name="image_tab_motion">Движение</string>
+    <string name="image_captured_at">Кадр от %1$s</string>
+    <string name="image_person_count">Найдено людей: %1$d</string>
+    <string name="image_no_person">Людей не найдено</string>
+    <string name="image_motion_regions">Областей движения: %1$d</string>
+    <string name="image_note">Снимок на момент запроса, а не живой поток.</string>
+
+    <!-- Ошибки -->
+    <string name="error_invalid_installation_code">Неверный код установки. Проверьте код и адрес сервера.</string>
+    <string name="error_device_already_activated">Это устройство уже активировано. Войдите по PIN.</string>
+    <string name="error_invalid_pin">Неверный PIN.</string>
+    <string name="error_unauthorized">Сессия истекла. Войдите по PIN ещё раз.</string>
+    <string name="error_agent_not_found">Агент не найден.</string>
+    <string name="error_image_not_available">Агент ещё не присылал кадр. Попробуйте через несколько секунд.</string>
+    <string name="error_validation">Проверьте введённые данные.</string>
+    <string name="error_network">Нет связи с сервером. Проверьте адрес и подключение к сети.</string>
+    <string name="error_server">Сервер вернул ошибку. Попробуйте позже.</string>
+    <string name="error_unknown">Что-то пошло не так. Попробуйте ещё раз.</string>
+
+    <!-- Валидация на клиенте -->
+    <string name="validation_pin_six_digits">PIN должен состоять ровно из шести цифр.</string>
+    <string name="validation_pin_mismatch">PIN не совпадает.</string>
+    <string name="validation_code_required">Введите код установки.</string>
+    <string name="validation_name_required">Введите имя.</string>
+    <string name="validation_server_url">Адрес должен начинаться с http:// или https://</string>
+</resources>

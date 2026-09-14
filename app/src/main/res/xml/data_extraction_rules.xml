@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Токен и device_id из резервных копий исключены: ключ шифрования живёт
+  в AndroidKeyStore этого устройства и на другом устройстве бесполезен.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="terentiy_secure.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="terentiy_secure.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Только для отладочной сборки. Адрес backend вводится пользователем и заранее
+  неизвестен: ноутбук получает адрес от роутера и меняет его от сети к сети.
+  Перечислить такие адреса в конфигурации нельзя, поэтому в debug открытый
+  трафик разрешён целиком. В release действует запрещающая конфигурация
+  из app/src/main/res/xml/network_security_config.xml.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

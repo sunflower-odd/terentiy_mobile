@@ -1,0 +1,294 @@
+# ВНИМАНИЕ: синхронизированная копия. Оригинал принадлежит репозиторию terentiy_ai.
+# Источник: terentiy_ai/docs/SDD-000/stage-01-person-detection/contracts/mobile-server.openapi.yaml
+# Коммит источника: 5cc250f7d2971cfeeabfce8c00ec67d1094e8fdb (2026-09-06)
+# Синхронизировано: 2026-09-13
+# Правки вносятся в terentiy_ai и переносятся сюда целиком, а не наоборот.
+
+openapi: 3.1.0
+info:
+  title: Terentiy Mobile API
+  version: 1.0.0
+  description: >-
+    Контракт Stage 01 между мобильным приложением и backend-сервером.
+    Операции agent-to-server намеренно не входят в этот документ.
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /health:
+    get:
+      summary: Проверить доступность backend
+      operationId: health
+      responses:
+        '200':
+          description: Сервер доступен
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+  /api/v1/mobile/activate:
+    post:
+      summary: Активировать мобильное устройство по коду установки
+      operationId: activateMobile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileActivationRequest'
+      responses:
+        '201':
+          description: Устройство активировано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileToken'
+        '401':
+          $ref: '#/components/responses/ServiceError'
+        '409':
+          $ref: '#/components/responses/ServiceError'
+        '422':
+          $ref: '#/components/responses/ServiceError'
+  /api/v1/mobile/login:
+    post:
+      summary: Получить mobile bearer token по device ID и PIN
+      operationId: loginMobile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileLoginRequest'
+      responses:
+        '200':
+          description: Вход выполнен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileToken'
+        '401':
+          $ref: '#/components/responses/ServiceError'
+        '422':
+          $ref: '#/components/responses/ServiceError'
+  /api/v1/agents:
+    get:
+      summary: Получить агентов household текущего mobile-клиента
+      operationId: listAgents
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Агенты и последние технические статусы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentList'
+        '401':
+          $ref: '#/components/responses/ServiceError'
+  /api/v1/agents/{agent_id}/latest-image:
+    get:
+      summary: Получить последнюю пару person и motion JPEG
+      operationId: getLatestImage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Последнее изображение агента
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LatestImage'
+        '401':
+          $ref: '#/components/responses/ServiceError'
+        '404':
+          $ref: '#/components/responses/ServiceError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+  parameters:
+    AgentId:
+      name: agent_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    ServiceError:
+      description: Прикладная ошибка backend
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    MobileActivationRequest:
+      type: object
+      required: [installation_code, device_id, pin]
+      properties:
+        installation_code:
+          type: string
+        device_id:
+          type: string
+        pin:
+          type: string
+          pattern: '^\\d{6}$'
+    MobileLoginRequest:
+      type: object
+      required: [device_id, pin]
+      properties:
+        device_id:
+          type: string
+        pin:
+          type: string
+          pattern: '^\\d{6}$'
+    MobileToken:
+      type: object
+      required: [access_token, token_type, household_id]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          const: bearer
+        household_id:
+          type: string
+    AgentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentStatus'
+    AgentStatus:
+      type: object
+      required: [id, household_id, name, camera_id, software_version, created_at, online]
+      properties:
+        id:
+          type: string
+          format: uuid
+        household_id:
+          type: string
+        name:
+          type: string
+        camera_id:
+          type: string
+        software_version:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        reported_at:
+          type: [string, 'null']
+          format: date-time
+        agent_online:
+          type: [boolean, 'null']
+        camera_connected:
+          type: [boolean, 'null']
+        stream_active:
+          type: [boolean, 'null']
+        ml_ready:
+          type: [boolean, 'null']
+        queue_size:
+          type: [integer, 'null']
+        last_frame_at:
+          type: [string, 'null']
+          format: date-time
+        online:
+          type: boolean
+    LatestImage:
+      type: object
+      required:
+        - agent_id
+        - captured_at
+        - model_name
+        - model_version
+        - detection
+        - motion
+        - media_type
+        - content_base64
+        - motion_content_base64
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        captured_at:
+          type: string
+          format: date-time
+        model_name:
+          type: string
+        model_version:
+          type: string
+        detection:
+          $ref: '#/components/schemas/Detection'
+        motion:
+          $ref: '#/components/schemas/Motion'
+        media_type:
+          type: string
+          const: image/jpeg
+        content_base64:
+          type: string
+          contentEncoding: base64
+        motion_content_base64:
+          type: string
+          contentEncoding: base64
+    Detection:
+      type: object
+      required: [person_present, person_count, max_confidence, inference_time_ms]
+      properties:
+        person_present:
+          type: boolean
+        person_count:
+          type: integer
+          minimum: 0
+        max_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        inference_time_ms:
+          type: [number, 'null']
+    Motion:
+      type: object
+      required:
+        - success
+        - background_ready
+        - motion_present
+        - region_count
+        - changed_area_ratio
+        - processing_time_ms
+        - error_code
+      properties:
+        success:
+          type: boolean
+        background_ready:
+          type: boolean
+        motion_present:
+          type: boolean
+        region_count:
+          type: integer
+          minimum: 0
+        changed_area_ratio:
+          type: number
+          minimum: 0
+          maximum: 1
+        processing_time_ms:
+          type: [number, 'null']
+        error_code:
+          type: [string, 'null']
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
