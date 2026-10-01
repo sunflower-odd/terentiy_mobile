@@ -4,73 +4,134 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import java.util.Base64
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import ru.terentiy.mobile.domain.Agent
-import ru.terentiy.mobile.domain.LatestImage
+import ru.terentiy.mobile.domain.EventStatus
+import ru.terentiy.mobile.domain.FallAnalysis
+import ru.terentiy.mobile.domain.FallEvent
+import ru.terentiy.mobile.domain.Session
 import ru.terentiy.mobile.domain.Tri
 import timber.log.Timber
 
 /**
- * Граница между формой ответа backend и доменной моделью.
+ * Граница между формой ответа сервера и доменной моделью.
  *
- * Здесь — единственное место, где `null` из DTO превращается в [Tri.UNKNOWN].
- * Ниже по коду `Boolean?` отсутствует как тип, поэтому перепутать «неизвестно»
- * и «нет» уже невозможно.
+ * Здесь — единственное место, где строки превращаются в перечисления, а сырой
+ * JSON `analysis` в [FallAnalysis]. Неизвестное значение не роняет разбор:
+ * контракт уже менялся трижды, и новые варианты появятся раньше, чем обновится
+ * установленное приложение.
  */
 
-fun AgentStatusDto.toDomain(): Agent = Agent(
+fun MobileTokenDto.toDomain(): Session = Session(
+    accessToken = accessToken,
+    householdId = householdId,
+)
+
+fun AgentDto.toDomain(): Agent = Agent(
     id = id,
+    householdId = householdId,
     name = name,
     cameraId = cameraId,
     softwareVersion = softwareVersion,
-    modelVersion = modelVersion,
+    createdAt = createdAt.toInstantOrNull(),
     online = online,
     agentOnline = Tri.of(agentOnline),
     cameraConnected = Tri.of(cameraConnected),
     streamActive = Tri.of(streamActive),
-    mlReady = Tri.of(mlReady),
     queueSize = queueSize,
     reportedAt = reportedAt.toInstantOrNull(),
     lastFrameAt = lastFrameAt.toInstantOrNull(),
 )
 
-fun LatestImageDto.toDomain(): LatestImage = LatestImage(
-    agentId = agentId,
-    capturedAt = capturedAt.toInstantOrNull(),
-    modelName = modelName,
-    modelVersion = modelVersion,
-    personPresent = detection.personPresent,
-    personCount = detection.personCount,
-    motionPresent = motion.motionPresent,
-    motionRegionCount = motion.regionCount,
-    personJpeg = contentBase64.decodeBase64(),
-    motionJpeg = motionContentBase64.decodeBase64(),
-)
+fun AgentListDto.toDomain(): List<Agent> = items.map { it.toDomain() }
 
 /**
- * Backend хранит и передаёт время в UTC с суффиксом `Z`, но поле `reported_at`
- * приходит от агента и в принципе может нести смещение. Поэтому разбор идёт
- * по трём вариантам, а непарсящееся значение даёт `null`, а не исключение:
- * время на экране справочное, состояние агента — нет, и портить второе из-за
- * первого нельзя.
+ * Событие.
+ *
+ * Событие без `clip_media_id` по контракту невозможно: сервер отдаёт только
+ * события с загруженным клипом. Но если такое всё же пришло, оно **отбрасывается**
+ * в [FallEventListDto.toDomain], а не превращается в запись с пустым
+ * идентификатором, по которой карточка потом сходит за медиа в никуда.
+ */
+fun FallEventDto.toDomain(): FallEvent? {
+    val clip = clipMediaId?.takeIf { it.isNotBlank() } ?: run {
+        Timber.w("Событие без клипа отброшено | id=%s", id)
+        return null
+    }
+    return FallEvent(
+        id = id,
+        agentId = agentId,
+        frameId = frameId,
+        frameMediaId = frameMediaId,
+        clipMediaId = clip,
+        capturedAt = capturedAt.toInstantOrNull(),
+        createdAt = createdAt.toInstantOrNull(),
+        status = EventStatus.parse(status),
+        analysis = analysis?.toFallAnalysis(),
+    )
+}
+
+fun FallEventListDto.toDomain(): List<FallEvent> = items.mapNotNull { it.toDomain() }
+
+/**
+ * Разбор свободного поля `analysis`.
+ *
+ * Целиком защищён: `analysis` — ML-диагностика, её форма меняется вместе с
+ * правилами распознавания, и неожиданное содержимое обязано давать `null`, а не
+ * ронять весь список событий. Берётся только вложенный объект `fall` и
+ * `processing_time_ms` — остальное (`people`, `poses`, `pose_diagnostics`, `ml`)
+ * не показывается пользователю и не разбирается.
+ */
+internal fun JsonObject.toFallAnalysis(): FallAnalysis? = runCatching {
+    val fall = this["fall"]?.jsonObject ?: return@runCatching null
+    FallAnalysis(
+        detected = fall.bool("detected") ?: false,
+        trackId = fall.int("track_id"),
+        candidateRules = fall.strings("candidate_rules"),
+        confirmationRules = fall.strings("confirmation_rules"),
+        candidateVotes = fall.int("candidate_votes"),
+        candidateVotesRequired = fall.int("candidate_votes_required"),
+        confirmationVotes = fall.int("confirmation_votes"),
+        confirmationVotesRequired = fall.int("confirmation_votes_required"),
+        processingTimeMs = double("processing_time_ms"),
+    )
+}.getOrElse { error ->
+    Timber.w(error, "Не удалось разобрать analysis события")
+    null
+}
+
+private fun JsonObject.primitive(key: String): JsonPrimitive? = this[key] as? JsonPrimitive
+
+private fun JsonObject.bool(key: String): Boolean? = primitive(key)?.booleanOrNull
+
+private fun JsonObject.int(key: String): Int? = primitive(key)?.intOrNull
+
+private fun JsonObject.double(key: String): Double? = primitive(key)?.doubleOrNull
+
+private fun JsonObject.strings(key: String): List<String> =
+    runCatching {
+        this[key]?.jsonArray?.mapNotNull { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content }
+    }.getOrNull().orEmpty()
+
+/**
+ * Время из ответа сервера.
+ *
+ * Сервер отдаёт UTC с суффиксом `Z`, но отдельные поля приходят от агента и могут
+ * нести смещение. Разбор идёт по трём вариантам, а непарсящееся значение даёт
+ * `null`: время на экране справочное, а состояние контура — нет, и портить
+ * второе из-за первого нельзя.
  */
 internal fun String?.toInstantOrNull(): Instant? {
     if (this.isNullOrBlank()) return null
     runCatching { return Instant.parse(this) }
     runCatching { return OffsetDateTime.parse(this).toInstant() }
     runCatching { return LocalDateTime.parse(this).toInstant(ZoneOffset.UTC) }
-    Timber.w("Не удалось разобрать время из ответа backend | value=%s", this)
+    Timber.w("Не удалось разобрать время из ответа сервера | value=%s", this)
     return null
 }
-
-/**
- * Используется java.util.Base64, а не android.util.Base64: он доступен с API 26,
- * а это минимальный уровень приложения, и при этом остаётся обычным JVM-классом.
- * Благодаря этому мапперы проверяются обычными unit-тестами без Robolectric.
- */
-internal fun String.decodeBase64(): ByteArray =
-    runCatching { Base64.getDecoder().decode(this) }
-        .getOrElse {
-            Timber.w("Повреждённое изображение в ответе backend")
-            ByteArray(0)
-        }

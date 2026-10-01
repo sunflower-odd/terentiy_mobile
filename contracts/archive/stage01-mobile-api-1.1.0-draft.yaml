@@ -1,0 +1,441 @@
+# ВНИМАНИЕ: синхронизированная копия. Оригинал принадлежит репозиторию terentiy_ai.
+# Источник: terentiy_ai/docs/SDD-000/stage-01-person-detection/contracts/mobile-server.openapi.yaml
+# Коммит источника: 2d5141d6b68e0fe01815156193f78ea4abbdb2b8 (2026-09-22)
+# Синхронизировано: 2026-09-29
+# Правки вносятся в terentiy_ai и переносятся сюда целиком, а не наоборот.
+# ВНИМАНИЕ: версия помечена draft — backend её пока не реализует.
+
+openapi: 3.1.0
+info:
+  title: Terentiy Mobile API
+  version: 1.1.0-draft
+  description: |
+    Контракт демо-версии мобильного приложения: первичная привязка к household,
+    вход, управление наблюдением и просмотр тревог о возможном падении.
+
+    Все маршруты, кроме health и auth, требуют короткоживущий bearer access token.
+    Пароль и refresh token передаются только по HTTPS. Шифрование пароля в самом
+    приложении не заменяет TLS и намеренно не является частью этого контракта.
+servers:
+  - url: https://api-demo.example.com
+    description: Cloud demo server. Use a certificate issued by a publicly trusted CA.
+  - url: http://127.0.0.1:8080
+    description: Local emulator and development only; never expose this address to the Internet.
+tags:
+  - name: Authentication
+  - name: Home
+  - name: Observation
+  - name: Events
+paths:
+  /health:
+    get:
+      summary: Проверить доступность backend
+      operationId: health
+      responses:
+        '200':
+          description: Сервер доступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /api/v1/auth/register:
+    post:
+      tags: [Authentication]
+      summary: Привязать приложение кодом активации и создать учётную запись
+      description: |
+        Одноразовый код привязывает пользователя и устройство к household.
+        При успехе приложение переходит на главный экран с полученной сессией.
+      operationId: registerMobileUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationRequest'
+      responses:
+        '201':
+          description: Учётная запись создана, устройство привязано, сессия выдана.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '409': { $ref: '#/components/responses/ServiceError' }
+        '422': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Войти по логину и паролю
+      operationId: loginMobileUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Новая сессия выдана.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '422': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Обновить сессию с обязательной ротацией refresh token
+      description: |
+        Старый refresh token становится недействительным сразу после успешного
+        вызова. Повторное предъявление уже использованного токена отзывает всю
+        token family устройства и требует нового входа.
+      operationId: refreshMobileSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Выданы новый access token и новый refresh token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Завершить текущую сессию
+      operationId: logoutMobileUser
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Access и refresh token текущей сессии отозваны. }
+        '401': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/auth/password-reset/request:
+    post:
+      tags: [Authentication]
+      summary: Запросить восстановление пароля (опционально для первого релиза)
+      description: |
+        Сервер всегда отвечает 202, чтобы не раскрывать существование логина.
+        Если при регистрации указан recovery_contact, одноразовый код отправляется
+        через подтверждённый канал. До подключения почты/SMS экран показывает
+        «Обратитесь к администратору household».
+      operationId: requestPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '202': { description: Запрос принят. }
+        '422': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/auth/password-reset/confirm:
+    post:
+      tags: [Authentication]
+      summary: Установить новый пароль по одноразовому коду
+      operationId: confirmPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmation'
+      responses:
+        '204': { description: Пароль изменён; все прежние сессии отозваны. }
+        '400': { $ref: '#/components/responses/ServiceError' }
+        '422': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/home:
+    get:
+      tags: [Home]
+      summary: Получить данные главного экрана
+      description: |
+        Сводка не содержит медиа; для истории и карточки тревоги используются
+        events. Пока приложение находится на переднем плане, оно опрашивает
+        этот маршрут с интервалом `poll_after_seconds`. Фоновая доставка и push
+        в первой Android-версии не используются.
+      operationId: getHome
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Текущий статус наблюдения, камеры и непросмотренная тревога.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeSummary'
+        '401': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/agents/{agent_id}/observation:
+    put:
+      tags: [Observation]
+      summary: Включить или выключить наблюдение
+      description: |
+        Команда асинхронно доставляется агенту. UI отображает `starting` или
+        `stopping` до следующего heartbeat; успешное состояние — `enabled` либо
+        `disabled`. При выключенном состоянии новая детекция не запускается.
+      operationId: setObservationState
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObservationCommand'
+      responses:
+        '202':
+          description: Команда принята агентом для исполнения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationStatus'
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/events:
+    get:
+      tags: [Events]
+      summary: Получить историю тревог
+      operationId: listEvents
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentIdFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: События по убыванию occurred_at.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+        '401': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/events/{event_id}:
+    get:
+      tags: [Events]
+      summary: Открыть карточку тревоги с кадром и состоянием видеоклипа
+      operationId: getEvent
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Детали возможного падения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FallEvent'
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/media/{media_id}:
+    get:
+      tags: [Events]
+      summary: Скачать кадр или 30-секундный видеоклип тревоги
+      operationId: downloadEventMedia
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Двоичный JPEG или MP4; тип определяется Content-Type.
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            video/mp4: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Access token со сроком жизни 15 минут.
+  parameters:
+    AgentId:
+      name: agent_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AgentIdFilter:
+      name: agent_id
+      in: query
+      required: false
+      schema: { type: string, format: uuid }
+    EventId:
+      name: event_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MediaId:
+      name: media_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+    PageSize:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+  responses:
+    ServiceError:
+      description: Прикладная ошибка backend.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+    RegistrationRequest:
+      type: object
+      required: [activation_code, device_id, username, password]
+      properties:
+        activation_code: { type: string, minLength: 8, maxLength: 128 }
+        device_id:
+          type: string
+          minLength: 1
+          description: Стабильный случайный ID, сгенерированный приложением.
+        username: { type: string, minLength: 3, maxLength: 64, pattern: '^[A-Za-z0-9._-]+$' }
+        password: { type: string, minLength: 12, maxLength: 128, format: password, writeOnly: true }
+        recovery_contact:
+          type: [string, 'null']
+          format: email
+          description: Необязательный подтверждённый e-mail для восстановления.
+    LoginRequest:
+      type: object
+      required: [device_id, username, password]
+      properties:
+        device_id: { type: string, minLength: 1 }
+        username: { type: string, minLength: 3, maxLength: 64 }
+        password: { type: string, minLength: 1, maxLength: 128, format: password, writeOnly: true }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string, format: password, writeOnly: true }
+    Session:
+      type: object
+      required: [access_token, refresh_token, token_type, access_expires_at, refresh_expires_at, household_id]
+      properties:
+        access_token:
+          type: string
+          description: "Отправляется в Authorization: Bearer <token>."
+        refresh_token: { type: string, description: Хранить только в защищённом хранилище ОС. }
+        token_type: { type: string, const: bearer }
+        access_expires_at: { type: string, format: date-time }
+        refresh_expires_at: { type: string, format: date-time }
+        household_id: { type: string, format: uuid }
+    PasswordResetRequest:
+      type: object
+      required: [username]
+      properties:
+        username: { type: string }
+    PasswordResetConfirmation:
+      type: object
+      required: [reset_code, new_password]
+      properties:
+        reset_code: { type: string, minLength: 6, maxLength: 256 }
+        new_password: { type: string, minLength: 12, maxLength: 128, format: password, writeOnly: true }
+    HomeSummary:
+      type: object
+      required: [agents, unreviewed_event_count, poll_after_seconds]
+      properties:
+        agents:
+          type: array
+          items: { $ref: '#/components/schemas/AgentHomeStatus' }
+        unreviewed_event_count: { type: integer, minimum: 0 }
+        poll_after_seconds:
+          type: integer
+          const: 5
+          description: Интервал foreground polling. Не выполнять polling в фоне.
+        latest_unreviewed_event:
+          oneOf:
+            - $ref: '#/components/schemas/EventPreview'
+            - type: 'null'
+    AgentHomeStatus:
+      type: object
+      required: [agent_id, name, observation, camera, agent_online, updated_at]
+      properties:
+        agent_id: { type: string, format: uuid }
+        name: { type: string }
+        observation: { $ref: '#/components/schemas/ObservationStatus' }
+        camera: { type: string, enum: [connected, unavailable, unknown] }
+        agent_online: { type: boolean }
+        updated_at: { type: string, format: date-time }
+    ObservationCommand:
+      type: object
+      required: [desired_state]
+      properties:
+        desired_state: { type: string, enum: [enabled, disabled] }
+    ObservationStatus:
+      type: object
+      required: [state, changed_at]
+      properties:
+        state: { type: string, enum: [disabled, starting, enabled, stopping, unavailable] }
+        changed_at: { type: string, format: date-time }
+        message: { type: [string, 'null'] }
+    EventPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/EventPreview' }
+        next_cursor: { type: [string, 'null'] }
+    EventPreview:
+      type: object
+      required: [id, agent_id, event_type, occurred_at, severity, reviewed]
+      properties:
+        id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        event_type: { type: string, const: possible_fall }
+        occurred_at: { type: string, format: date-time }
+        severity: { type: string, enum: [urgent] }
+        reviewed: { type: boolean }
+    FallEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventPreview'
+        - type: object
+          required: [detected_at, statement, image_media_id, clip]
+          properties:
+            detected_at: { type: string, format: date-time }
+            statement:
+              type: string
+              description: Нейтральная формулировка, например «Эпизод похож на возможное падение».
+            image_media_id: { type: string, format: uuid }
+            clip: { $ref: '#/components/schemas/ClipEvidence' }
+    ClipEvidence:
+      type: object
+      required: [status, duration_seconds, media_id]
+      properties:
+        status: { type: string, enum: [available, preparing, unavailable] }
+        duration_seconds: { type: integer, const: 30 }
+        media_id: { type: [string, 'null'], format: uuid }
+        unavailable_reason: { type: [string, 'null'] }
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }

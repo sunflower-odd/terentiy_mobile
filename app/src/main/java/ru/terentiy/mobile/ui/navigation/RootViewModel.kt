@@ -9,27 +9,30 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.terentiy.mobile.data.repository.AuthRepository
-import ru.terentiy.mobile.domain.Session
+import ru.terentiy.mobile.domain.SessionState
 
 /**
- * Решает, с какого экрана начинается работа приложения.
+ * Решает, с какого экрана начинается работа приложения, и куда уводить при
+ * потере сессии.
  *
- * Состояние `Active` означает лишь наличие сохранённого токена. Действителен он
- * или нет, покажет первый же запрос к API: механики проверки токена у backend нет,
- * а гонять лишний запрос ради проверки бессмысленно — главный экран всё равно
- * обращается к `GET /api/v1/agents` сразу после открытия.
+ * `null` означает «ещё не прочитали»: состояние собирается из настроек и
+ * зашифрованного хранилища асинхронно, и до первого значения показывать что-либо
+ * нельзя — иначе на старте мигнёт чужой экран.
+ *
+ * [SessionState.Active] означает лишь наличие токена. Действителен он или нет,
+ * покажет первый же запрос: сервер отвечает `401`, если токен ему неизвестен, и
+ * тогда [ru.terentiy.mobile.core.network.AuthorizedCall] стирает сессию, а это
+ * состояние само переезжает в [SessionState.NeedsPin].
  */
 @HiltViewModel
 class RootViewModel @Inject constructor(
     private val auth: AuthRepository,
 ) : ViewModel() {
 
-    val session: StateFlow<Session?> = auth.session
+    val sessionState: StateFlow<SessionState?> = auth.sessionState
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     init {
         viewModelScope.launch { auth.restoreServerUrl() }
     }
-
-    fun dropToken() = auth.dropToken()
 }

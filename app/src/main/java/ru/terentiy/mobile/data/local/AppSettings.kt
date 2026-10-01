@@ -19,12 +19,15 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
     name = "terentiy_settings"
 )
 
+/** Откуда приложение берёт данные. */
+enum class DataSourceMode { DEMO, NETWORK }
+
 /**
  * Несекретные настройки приложения.
  *
- * Имя пользователя хранится локально: backend после входа отдаёт только
- * `household_id`, а название домовладения в API не возвращается. Дорабатывать
- * backend ради приветствия избыточно.
+ * Здесь же живёт выбор источника данных. Он вынесен в настройки, а не в тип
+ * сборки, сознательно: демонстрацию удобно показывать без сервера, а на стенде —
+ * переключиться на живой backend, не пересобирая приложение.
  */
 @Singleton
 class AppSettings @Inject constructor(
@@ -41,7 +44,25 @@ class AppSettings @Inject constructor(
         it[KEY_SERVER_URL] ?: BuildConfig.DEFAULT_SERVER_URL
     }
 
+    /** Привязано ли устройство к установке. Токен при этом может быть стёрт. */
     val isActivated: Flow<Boolean> = store.data.map { it[KEY_ACTIVATED] == true }
+
+    val dataSourceMode: Flow<DataSourceMode> = store.data.map { preferences ->
+        // По умолчанию живой сервер. Демо было значением по умолчанию и оказалось
+        // ловушкой: свежеустановленное приложение активировалось «успешно» против
+        // придуманных данных, и чтобы добраться до настоящего сервера, нужно было
+        // зайти в Профиль, выключить демо, выйти и активироваться заново.
+        when (preferences[KEY_DATA_SOURCE]) {
+            DataSourceMode.DEMO.name -> DataSourceMode.DEMO
+            else -> DataSourceMode.NETWORK
+        }
+    }
+
+    suspend fun currentDataSourceMode(): DataSourceMode = dataSourceMode.first()
+
+    suspend fun saveDataSourceMode(mode: DataSourceMode) {
+        store.edit { it[KEY_DATA_SOURCE] = mode.name }
+    }
 
     suspend fun currentServerUrl(): String = serverUrl.first()
 
@@ -49,6 +70,10 @@ class AppSettings @Inject constructor(
         store.edit { it[KEY_SERVER_URL] = value }
     }
 
+    /**
+     * Имя пользователя на сервер не уходит: в `MobileActivationRequest` его нет.
+     * Оно нужно только для приветствия на главном экране и живёт здесь.
+     */
     suspend fun saveActivation(userName: String, householdId: String) {
         store.edit {
             it[KEY_USER_NAME] = userName
@@ -57,11 +82,7 @@ class AppSettings @Inject constructor(
         }
     }
 
-    suspend fun saveHouseholdId(value: String) {
-        store.edit { it[KEY_HOUSEHOLD_ID] = value }
-    }
-
-    /** Сбрасывает признак активации, сохраняя адрес сервера: он всё ещё верен. */
+    /** Сбрасывает привязку, сохраняя адрес сервера и режим: они всё ещё верны. */
     suspend fun clearActivation() {
         store.edit {
             it.remove(KEY_USER_NAME)
@@ -75,5 +96,6 @@ class AppSettings @Inject constructor(
         val KEY_HOUSEHOLD_ID = stringPreferencesKey("household_id")
         val KEY_SERVER_URL = stringPreferencesKey("server_url")
         val KEY_ACTIVATED = booleanPreferencesKey("activated")
+        val KEY_DATA_SOURCE = stringPreferencesKey("data_source_mode")
     }
 }

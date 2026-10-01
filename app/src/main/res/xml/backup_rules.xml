@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="sharedpref" path="terentiy_secure.xml" />
+    <!--
+      Отметки просмотра привязаны к устройству: восстановление их туда, где
+      токен из keystore расшифровать невозможно, даёт рассогласованное
+      состояние. Дешевле исключить.
+    -->
+    <exclude domain="file" path="datastore/terentiy_seen.preferences_pb" />
 </full-backup-content>

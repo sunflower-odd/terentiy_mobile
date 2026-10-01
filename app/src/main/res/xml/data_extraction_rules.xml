@@ -6,8 +6,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="terentiy_secure.xml" />
+        <exclude domain="file" path="datastore/terentiy_seen.preferences_pb" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="terentiy_secure.xml" />
+        <exclude domain="file" path="datastore/terentiy_seen.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>

@@ -1,38 +1,72 @@
 # ВНИМАНИЕ: синхронизированная копия. Оригинал принадлежит репозиторию terentiy_ai.
-# Источник: terentiy_ai/docs/SDD-000/stage-01-person-detection/contracts/mobile-server.openapi.yaml
-# Коммит источника: 5cc250f7d2971cfeeabfce8c00ec67d1094e8fdb (2026-09-06)
-# Синхронизировано: 2026-09-13
+# Источник: terentiy_ai/contracts/openapi/mobile-server.openapi.yaml
+# Коммит источника: 57f8e83e2a16962d56686d408a5152652590243e (2026-09-30)
+# Синхронизировано: 2026-09-30
 # Правки вносятся в terentiy_ai и переносятся сюда целиком, а не наоборот.
+#
+# Эту версию backend РЕАЛИЗУЕТ: маршруты сервера в terentiy_ai/server/src/terentiy_server
+# совпадают с описанными здесь поимённо.
+#
+# Драфт 1.1.0, под который приложение писалось 29 сентября, лежит рядом:
+# contracts/archive/stage01-mobile-api-1.1.0-draft.yaml. Он не реализован, и автор
+# backend не подтвердил, остаётся ли он в планах.
 
 openapi: 3.1.0
 info:
-  title: Terentiy Mobile API
+  title: Terentiy Mobile Server API
   version: 1.0.0
-  description: >-
-    Контракт Stage 01 между мобильным приложением и backend-сервером.
-    Операции agent-to-server намеренно не входят в этот документ.
+  description: |
+    HTTP contract for a Terentiy mobile application and the server.
+
+    It deliberately contains only mobile-facing endpoints: device activation and
+    login, agent health, fall events, and evidence downloads. Agent-to-server
+    endpoints are documented separately in `terentiy-api.openapi.yaml`.
 servers:
   - url: http://127.0.0.1:8080
+    description: Local development or a server reachable through a LAN address.
+tags:
+  - name: Diagnostics
+    description: Server availability check.
+  - name: Authentication
+    description: Mobile device activation and authentication.
+  - name: Agents
+    description: Edge-agent health visible to the mobile household.
+  - name: Events
+    description: Confirmed falls and their evidence.
 paths:
   /health:
     get:
-      summary: Проверить доступность backend
+      tags: [Diagnostics]
+      summary: Check API and PostgreSQL availability
       operationId: health
       responses:
         '200':
-          description: Сервер доступен
+          description: API and PostgreSQL are available.
           content:
             application/json:
               schema:
-                type: object
-                required: [status]
-                properties:
-                  status:
-                    type: string
-                    const: ok
+                $ref: '#/components/schemas/Health'
+              example:
+                status: ok
+                database: ok
+        '503':
+          description: API is running, but PostgreSQL is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                status: degraded
+                database: unavailable
+
   /api/v1/mobile/activate:
     post:
-      summary: Активировать мобильное устройство по коду установки
+      tags: [Authentication]
+      summary: Activate a mobile device
+      description: |
+        Registers a new mobile device in the household selected by an
+        installation code and returns a bearer token. A device ID can be
+        activated only once; use login after the first successful activation.
       operationId: activateMobile
       requestBody:
         required: true
@@ -40,9 +74,13 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/MobileActivationRequest'
+            example:
+              installation_code: HOME-SETUP-CODE
+              device_id: android-7f3a3b15
+              pin: '123456'
       responses:
         '201':
-          description: Устройство активировано
+          description: Device activated and a bearer token issued.
           content:
             application/json:
               schema:
@@ -52,10 +90,15 @@ paths:
         '409':
           $ref: '#/components/responses/ServiceError'
         '422':
-          $ref: '#/components/responses/ServiceError'
+          $ref: '#/components/responses/InvalidRequest'
+
   /api/v1/mobile/login:
     post:
-      summary: Получить mobile bearer token по device ID и PIN
+      tags: [Authentication]
+      summary: Log in an activated mobile device
+      description: |
+        Exchanges a previously activated device ID and its six-digit PIN for a
+        new bearer token. The PIN is never returned by the API.
       operationId: loginMobile
       requestBody:
         required: true
@@ -63,9 +106,12 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/MobileLoginRequest'
+            example:
+              device_id: android-7f3a3b15
+              pin: '123456'
       responses:
         '200':
-          description: Вход выполнен
+          description: New bearer token issued.
           content:
             application/json:
               schema:
@@ -73,94 +119,178 @@ paths:
         '401':
           $ref: '#/components/responses/ServiceError'
         '422':
-          $ref: '#/components/responses/ServiceError'
+          $ref: '#/components/responses/InvalidRequest'
+
   /api/v1/agents:
     get:
-      summary: Получить агентов household текущего mobile-клиента
+      tags: [Agents]
+      summary: List household agents and their latest health status
+      description: |
+        Returns only agents belonging to the authenticated mobile device's
+        household. Status fields are `null` until an agent has sent its first
+        heartbeat.
       operationId: listAgents
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Агенты и последние технические статусы
+          description: Household agents and their latest health status.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentList'
         '401':
           $ref: '#/components/responses/ServiceError'
-  /api/v1/agents/{agent_id}/latest-image:
+
+  /api/v1/events:
     get:
-      summary: Получить последнюю пару person и motion JPEG
-      operationId: getLatestImage
+      tags: [Events]
+      summary: List confirmed fall events
+      description: |
+        Returns only complete events from the authenticated mobile device's
+        household, ordered from newest to oldest. Each event has downloadable
+        JPEG frame and MP4 clip evidence.
+      operationId: listFallEvents
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/AgentIdFilter'
       responses:
         '200':
-          description: Последнее изображение агента
+          description: Confirmed fall events visible to the mobile device.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LatestImage'
+                $ref: '#/components/schemas/FallEventList'
+        '401':
+          $ref: '#/components/responses/ServiceError'
+
+  /api/v1/media/{media_id}:
+    get:
+      tags: [Events]
+      summary: Download event evidence
+      description: |
+        Downloads JPEG frame or MP4 clip evidence when it belongs to the
+        authenticated mobile device's household. Use `clip_media_id` from a
+        fall event to download its clip.
+      operationId: downloadMedia
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Binary media. Inspect the `Content-Type` response header.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            video/mp4:
+              schema:
+                type: string
+                format: binary
         '401':
           $ref: '#/components/responses/ServiceError'
         '404':
           $ref: '#/components/responses/ServiceError'
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: opaque
+      description: Mobile access token returned by activation or login.
+
   parameters:
-    AgentId:
+    AgentIdFilter:
       name: agent_id
-      in: path
-      required: true
+      in: query
+      required: false
+      description: Return events for one agent only.
       schema:
         type: string
         format: uuid
+    MediaId:
+      name: media_id
+      in: path
+      required: true
+      description: Identifier of a JPEG frame or MP4 clip.
+      schema:
+        type: string
+        format: uuid
+
   responses:
     ServiceError:
-      description: Прикладная ошибка backend
+      description: Stable application error.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    InvalidRequest:
+      description: Request body is malformed or violates a business validation rule.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/Error'
+              - $ref: '#/components/schemas/RequestValidationError'
+
   schemas:
+    Health:
+      type: object
+      required: [status, database]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        database:
+          type: string
+          enum: [ok, unavailable]
+
     MobileActivationRequest:
       type: object
       required: [installation_code, device_id, pin]
       properties:
         installation_code:
           type: string
+          description: Installation code provisioned on the server.
         device_id:
           type: string
+          minLength: 1
+          description: Stable device-generated identifier, unique within the server.
         pin:
           type: string
-          pattern: '^\\d{6}$'
+          pattern: '^\d{6}$'
+          description: Six decimal digits selected during activation.
+
     MobileLoginRequest:
       type: object
       required: [device_id, pin]
       properties:
         device_id:
           type: string
+          description: Device ID used during activation.
         pin:
           type: string
-          pattern: '^\\d{6}$'
+          pattern: '^\d{6}$'
+          description: Six-digit PIN chosen during activation.
+
     MobileToken:
       type: object
       required: [access_token, token_type, household_id]
       properties:
         access_token:
           type: string
+          description: "Opaque token; send it as `Authorization: Bearer <token>`."
         token_type:
           type: string
           const: bearer
         household_id:
           type: string
+          description: Stable identifier of the household selected by the installation code.
+
     AgentList:
       type: object
       required: [items]
@@ -168,10 +298,24 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/AgentStatus'
-    AgentStatus:
+            $ref: '#/components/schemas/Agent'
+
+    Agent:
       type: object
-      required: [id, household_id, name, camera_id, software_version, created_at, online]
+      required:
+        - id
+        - household_id
+        - name
+        - camera_id
+        - software_version
+        - created_at
+        - reported_at
+        - agent_online
+        - camera_connected
+        - stream_active
+        - queue_size
+        - last_frame_at
+        - online
       properties:
         id:
           type: string
@@ -190,105 +334,110 @@ components:
         reported_at:
           type: [string, 'null']
           format: date-time
+          description: Timestamp of the last agent heartbeat.
         agent_online:
           type: [boolean, 'null']
+          description: Value reported by the agent in its last heartbeat.
         camera_connected:
           type: [boolean, 'null']
+          description: Value reported by the agent in its last heartbeat.
         stream_active:
           type: [boolean, 'null']
-        ml_ready:
-          type: [boolean, 'null']
+          description: Value reported by the agent in its last heartbeat.
         queue_size:
           type: [integer, 'null']
+          minimum: 0
+          description: Frames waiting locally on the agent at its last heartbeat.
         last_frame_at:
           type: [string, 'null']
           format: date-time
         online:
           type: boolean
-    LatestImage:
+          description: |
+            True only when the last heartbeat reports `agent_online = true` and
+            it is still fresh according to the server's offline timeout.
+
+    FallEventList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FallEvent'
+
+    FallEvent:
       type: object
       required:
+        - id
         - agent_id
+        - frame_id
+        - frame_media_id
         - captured_at
-        - model_name
-        - model_version
-        - detection
-        - motion
-        - media_type
-        - content_base64
-        - motion_content_base64
+        - status
+        - analysis
+        - clip_media_id
+        - created_at
       properties:
+        id:
+          type: string
+          format: uuid
         agent_id:
           type: string
           format: uuid
+        frame_id:
+          type: string
+          format: uuid
+        frame_media_id:
+          type: string
+          format: uuid
+          description: JPEG frame identifier for immediate display or download.
         captured_at:
           type: string
           format: date-time
-        model_name:
+          description: Timestamp of the frame that produced the confirmed fall.
+        status:
           type: string
-        model_version:
+          enum: [confirmed]
+        analysis:
+          type: object
+          additionalProperties: true
+          description: ML and fall-rule result recorded by the server.
+        clip_media_id:
           type: string
-        detection:
-          $ref: '#/components/schemas/Detection'
-        motion:
-          $ref: '#/components/schemas/Motion'
-        media_type:
+          format: uuid
+          description: MP4 clip identifier, always available for listed events.
+        created_at:
           type: string
-          const: image/jpeg
-        content_base64:
-          type: string
-          contentEncoding: base64
-        motion_content_base64:
-          type: string
-          contentEncoding: base64
-    Detection:
-      type: object
-      required: [person_present, person_count, max_confidence, inference_time_ms]
-      properties:
-        person_present:
-          type: boolean
-        person_count:
-          type: integer
-          minimum: 0
-        max_confidence:
-          type: number
-          minimum: 0
-          maximum: 1
-        inference_time_ms:
-          type: [number, 'null']
-    Motion:
-      type: object
-      required:
-        - success
-        - background_ready
-        - motion_present
-        - region_count
-        - changed_area_ratio
-        - processing_time_ms
-        - error_code
-      properties:
-        success:
-          type: boolean
-        background_ready:
-          type: boolean
-        motion_present:
-          type: boolean
-        region_count:
-          type: integer
-          minimum: 0
-        changed_area_ratio:
-          type: number
-          minimum: 0
-          maximum: 1
-        processing_time_ms:
-          type: [number, 'null']
-        error_code:
-          type: [string, 'null']
+          format: date-time
+
     Error:
       type: object
       required: [code, message]
       properties:
         code:
           type: string
+          description: Stable machine-readable application error code.
         message:
           type: string
+          description: Human-readable error explanation.
+
+    RequestValidationError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            required: [loc, msg, type]
+            properties:
+              loc:
+                type: array
+                items:
+                  type: [string, integer]
+              msg:
+                type: string
+              type:
+                type: string
+            additionalProperties: true

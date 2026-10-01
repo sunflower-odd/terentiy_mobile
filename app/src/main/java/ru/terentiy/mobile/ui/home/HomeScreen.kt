@@ -3,226 +3,232 @@ package ru.terentiy.mobile.ui.home
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import ru.terentiy.mobile.R
 import ru.terentiy.mobile.core.time.TimeFormat
-import ru.terentiy.mobile.domain.Agent
+import ru.terentiy.mobile.domain.Tri
 import ru.terentiy.mobile.domain.WatchState
+import ru.terentiy.mobile.ui.common.AlertCard
+import ru.terentiy.mobile.ui.common.HeroMood
+import ru.terentiy.mobile.ui.common.IconVideoCam
+import ru.terentiy.mobile.ui.common.IconWifi
 import ru.terentiy.mobile.ui.common.MessageBanner
+import ru.terentiy.mobile.ui.common.SecondaryButton
+import ru.terentiy.mobile.ui.common.StatusHero
+import ru.terentiy.mobile.ui.common.StatusMark
+import ru.terentiy.mobile.ui.common.StatusRow
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onSessionExpired: () -> Unit,
+    contentPadding: PaddingValues,
+    onOpenEvent: (String) -> Unit,
+    onOpenHistory: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val image by viewModel.image.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(state.sessionExpired) {
-        if (state.sessionExpired) onSessionExpired()
-    }
-
-    // Опрос идёт, только пока экран на переднем плане. Фоновых сервисов на Stage 01 нет.
+    // Опрос живёт, только пока экран на переднем плане: в фоне приложение о
+    // событиях не узнаёт — push-канала в контракте нет.
     LifecycleResumeEffect(Unit) {
-        viewModel.startPolling()
-        onPauseOrDispose { viewModel.stopPolling() }
+        val job = scope.launch { viewModel.keepFresh() }
+        onPauseOrDispose { job.cancel() }
     }
-
-    ImageSheet(
-        state = image,
-        onDismiss = viewModel::dismissImage,
-    )
 
     HomeContent(
         state = state,
+        contentPadding = contentPadding,
         onRefresh = viewModel::refresh,
-        onRequestImage = viewModel::requestImage,
+        onOpenEvent = onOpenEvent,
+        onOpenHistory = onOpenHistory,
+        onDismissAlert = viewModel::dismissAlert,
     )
 }
 
-/**
- * Содержимое главного экрана без зависимости от ViewModel: проверяется
- * Compose-тестами без поднятия графа зависимостей и работает в превью.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeContent(
     state: HomeUiState,
+    contentPadding: PaddingValues,
     onRefresh: () -> Unit,
-    onRequestImage: (String) -> Unit,
+    onOpenEvent: (String) -> Unit,
+    onOpenHistory: () -> Unit,
+    onDismissAlert: () -> Unit,
 ) {
-    Scaffold { padding ->
-        PullToRefreshBox(
-            isRefreshing = state.refreshing,
-            onRefresh = onRefresh,
+    PullToRefreshBox(
+        isRefreshing = false,
+        onRefresh = onRefresh,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding),
+    ) {
+        if (state.firstLoad) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) { CircularProgressIndicator() }
+            return@PullToRefreshBox
+        }
+
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-        ) {
-            if (state.firstLoad) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    CircularProgressIndicator()
-                }
-                return@PullToRefreshBox
-            }
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                item {
-                    Text(
-                        text = state.userName.takeIf { it.isNotBlank() }
-                            ?.let { stringResource(R.string.home_greeting, it) }
-                            ?: stringResource(R.string.home_greeting_anonymous),
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                }
-
-                if (state.offline) {
-                    item { MessageBanner(text = stringResource(R.string.home_offline_banner)) }
-                }
-
-                state.errorRes?.let { error ->
-                    item { MessageBanner(text = stringResource(error)) }
-                }
-
-                item { WatchStateCard(state.watchState) }
-
-                items(state.agents, key = { it.id }) { agent ->
-                    AgentCard(
-                        agent = agent,
-                        onRequestImage = { onRequestImage(agent.id) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun WatchStateCard(state: WatchState) {
-    val container = when (state) {
-        WatchState.WATCHING -> MaterialTheme.colorScheme.primaryContainer
-        WatchState.ML_NOT_READY -> MaterialTheme.colorScheme.tertiaryContainer
-        else -> MaterialTheme.colorScheme.errorContainer
-    }
-    val content = when (state) {
-        WatchState.WATCHING -> MaterialTheme.colorScheme.onPrimaryContainer
-        WatchState.ML_NOT_READY -> MaterialTheme.colorScheme.onTertiaryContainer
-        else -> MaterialTheme.colorScheme.onErrorContainer
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = container, contentColor = content),
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = stringResource(R.string.home_status_title),
-                style = MaterialTheme.typography.labelLarge,
-            )
-            Text(
-                text = stringResource(state.titleRes()),
+                text = stringResource(R.string.brand_name),
                 style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary,
             )
             Text(
-                text = stringResource(state.hintRes()),
+                text = state.userName.takeIf { it.isNotBlank() }
+                    ?.let { stringResource(R.string.home_greeting, it) }
+                    ?: stringResource(R.string.brand_tagline),
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-    }
-}
 
-@Composable
-private fun AgentCard(agent: Agent, onRequestImage: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(text = agent.name, style = MaterialTheme.typography.titleMedium)
+            if (state.offline) MessageBanner(text = stringResource(R.string.home_offline_banner))
+            state.errorRes?.let { MessageBanner(text = stringResource(it)) }
+
+            state.alert?.let { alert ->
+                AlertCard(
+                    title = stringResource(R.string.event_fall),
+                    statement = stringResource(R.string.event_basis),
+                    time = alert.capturedAt?.let { TimeFormat.smart(it) }.orEmpty(),
+                    onOpen = { onOpenEvent(alert.id) },
+                    onDismiss = onDismissAlert,
+                )
+            }
+
+            StatusHero(
+                mood = when {
+                    state.alert != null -> HeroMood.ALERT
+                    state.watchState == WatchState.WATCHING -> HeroMood.WATCHING
+                    else -> HeroMood.SLEEPING
+                }
+            )
+
             Text(
-                text = stringResource(R.string.home_camera, agent.cameraId),
+                text = stringResource(state.watchState.titleRes()),
+                style = MaterialTheme.typography.displaySmall,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = stringResource(state.watchState.hintRes()),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
-            Text(
-                text = stringResource(R.string.home_software_version, agent.softwareVersion),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+
+            val agent = state.agent
+            if (agent == null) {
+                MessageBanner(
+                    text = stringResource(R.string.home_no_agent),
+                    container = MaterialTheme.colorScheme.surfaceVariant,
+                    content = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = agent.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+
+                Spacer(Modifier.height(2.dp))
+
+                StatusRow(
+                    icon = IconVideoCam,
+                    label = stringResource(agent.cameraConnected.cameraLabelRes()),
+                    mark = agent.cameraConnected.mark(),
+                )
+                StatusRow(
+                    icon = IconWifi,
+                    label = stringResource(
+                        if (agent.online) R.string.home_agent_online else R.string.home_agent_offline
+                    ),
+                    mark = if (agent.online) StatusMark.OK else StatusMark.BAD,
+                )
+                StatusRow(
+                    icon = IconVideoCam,
+                    label = stringResource(agent.streamActive.streamLabelRes()),
+                    mark = if (agent.streamActive == Tri.YES && state.watchState != WatchState.FRAMES_DELAYED) {
+                        StatusMark.OK
+                    } else {
+                        agent.streamActive.mark()
+                    },
+                )
+
+                // Очередь показывается только когда в ней что-то есть: строка
+                // «Очередь: 0» тратит внимание ни на что.
+                agent.queueSize?.takeIf { it > 0 }?.let { queue ->
+                    StatusRow(
+                        icon = IconVideoCam,
+                        label = stringResource(R.string.home_queue, queue),
+                        mark = if (state.watchState == WatchState.FRAMES_DELAYED) {
+                            StatusMark.BAD
+                        } else {
+                            StatusMark.UNKNOWN
+                        },
+                    )
+                }
+
+                Spacer(Modifier.height(2.dp))
+
+                // Две строки, отвечающие на вопрос «эти данные вообще свежие?».
+                // Без них экран выглядит как живая картина, хотя это срез.
+                agent.lastFrameAt?.let {
+                    Text(
+                        text = stringResource(R.string.home_last_frame, TimeFormat.smart(it)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                agent.reportedAt?.let {
+                    Text(
+                        text = stringResource(R.string.home_reported_at, TimeFormat.smart(it)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
             Spacer(Modifier.height(4.dp))
 
-            FlagRow(stringResource(R.string.home_flag_camera), stringResource(agent.cameraConnected.labelRes()))
-            FlagRow(stringResource(R.string.home_flag_stream), stringResource(agent.streamActive.labelRes()))
-            FlagRow(stringResource(R.string.home_flag_ml), stringResource(agent.mlReady.labelRes()))
-
-            Text(
-                text = agent.lastFrameAt
-                    ?.let { stringResource(R.string.home_last_frame, TimeFormat.smart(it)) }
-                    ?: stringResource(
-                        if (agent.neverReported) R.string.home_no_data_yet
-                        else R.string.home_last_frame_never
-                    ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            SecondaryButton(
+                text = if (state.unseenCount > 0) {
+                    stringResource(R.string.home_history_with_unseen, state.unseenCount)
+                } else {
+                    stringResource(R.string.home_history)
+                },
+                onClick = onOpenHistory,
             )
-
-            Button(onClick = onRequestImage, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.home_get_view))
-            }
         }
-    }
-}
-
-@Composable
-private fun FlagRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(text = value, style = MaterialTheme.typography.bodyMedium)
     }
 }

@@ -1,57 +1,82 @@
 package ru.terentiy.mobile.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+private val LightColors = lightColorScheme(
+    primary = GreenDeep,
+    onPrimary = SurfaceWhite,
+    primaryContainer = GreenMint,
+    onPrimaryContainer = GreenDeepDark,
+    secondary = GreenGrass,
+    onSecondary = SurfaceWhite,
+    secondaryContainer = GreenGrassSoft,
+    onSecondaryContainer = GreenDeepDark,
+    tertiary = GreenDeepDark,
+    onTertiary = SurfaceWhite,
+    tertiaryContainer = GreenMintStrong,
+    onTertiaryContainer = GreenDeepDark,
+    background = CreamBackground,
+    onBackground = InkNavy,
+    surface = SurfaceWhite,
+    onSurface = InkNavy,
+    surfaceVariant = SurfaceMuted,
+    onSurfaceVariant = InkMuted,
+    error = CoralAlert,
+    onError = SurfaceWhite,
+    errorContainer = CoralAlertSoft,
+    onErrorContainer = InkNavy,
+    outline = GreenMintStrong,
+    outlineVariant = SurfaceMuted,
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+private val DarkColors = darkColorScheme(
+    primary = GreenDeepOnDark,
+    onPrimary = BackgroundDark,
+    primaryContainer = GreenContainerDark,
+    onPrimaryContainer = InkOnDark,
+    secondary = GreenGrass,
+    onSecondary = BackgroundDark,
+    secondaryContainer = GreenContainerDark,
+    onSecondaryContainer = InkOnDark,
+    tertiary = GreenDeepOnDark,
+    onTertiary = BackgroundDark,
+    tertiaryContainer = GreenContainerDark,
+    onTertiaryContainer = InkOnDark,
+    background = BackgroundDark,
+    onBackground = InkOnDark,
+    surface = SurfaceDark,
+    onSurface = InkOnDark,
+    surfaceVariant = SurfaceMutedDark,
+    onSurfaceVariant = InkMutedOnDark,
+    error = CoralOnDark,
+    onError = BackgroundDark,
+    errorContainer = CoralContainerDark,
+    onErrorContainer = InkOnDark,
+    outline = GreenContainerDark,
+    outlineVariant = SurfaceMutedDark,
 )
 
+/**
+ * Тема приложения.
+ *
+ * Material You (динамические цвета по обоям устройства) намеренно **не**
+ * используется: он подменил бы фирменный зелёный произвольной палитрой
+ * пользователя, и от визуального языка из макетов ничего бы не осталось.
+ * Это осознанный отказ от системной подстройки в пользу узнаваемости.
+ */
 @Composable
 fun TerentiyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
     MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
+        colorScheme = if (darkTheme) DarkColors else LightColors,
+        typography = TerentiyTypography,
+        shapes = TerentiyShapes,
+        content = content,
     )
 }

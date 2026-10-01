@@ -12,53 +12,59 @@ import timber.log.Timber
 /**
  * Превращает любое исключение транспортного слоя в [AppError].
  *
- * Backend отдаёт ошибки в двух разных форматах, и оба нужно пережить:
+ * Сервер отдаёт ошибки в двух разных форматах, и оба нужно пережить:
  *
- * 1. Прикладная ошибка через глобальный обработчик FastAPI — `{"code": ..., "message": ...}`.
- * 2. Отказ валидации pydantic (например, `pin` не соответствует `^\d{6}$`) — обработчик
- *    не вызывается вовсе, и приходит собственный формат FastAPI `{"detail": [...]}`.
+ * 1. Прикладная ошибка через единственный обработчик FastAPI — `{"code", "message"}`.
+ * 2. Отказ валидации pydantic — обработчик не вызывается вовсе, приходит
+ *    собственный формат FastAPI `{"detail": [...]}` **без поля `code`**. На одном
+ *    и том же маршруте `mobile/activate` возможны оба: PIN неверной формы
+ *    отсекает pydantic, а пустой `device_id` — прикладная проверка.
  *
- * Третий случай — тело, которое не разбирается ни как то, ни как другое: пустой ответ,
- * HTML от постороннего сервера по ошибочному адресу, обрыв соединения на середине.
- * Он не должен приводить к падению, поэтому разбор целиком защищён.
- *
- * Расхождение форматов зафиксировано как запрос к backend: docs/backlog-mobile.md §6.
+ * Третий случай — тело, которое не разбирается ни как то, ни как другое: пустой
+ * ответ, HTML от постороннего сервера по ошибочному адресу, обрыв соединения на
+ * середине. Он не должен приводить к падению, поэтому разбор целиком защищён.
  */
 @Singleton
 class ErrorMapper @Inject constructor(private val json: Json) {
 
     fun map(throwable: Throwable): AppError = when (throwable) {
         is AppError -> throwable
-        is HttpException -> fromHttp(throwable)
+        is HttpException -> fromHttp(throwable.code(), throwable.errorBodyString())
         is IOException -> AppError.Network
         else -> AppError.Unexpected(throwable)
     }
 
-    private fun fromHttp(exception: HttpException): AppError {
-        val status = exception.code()
-        val body = runCatching { exception.response()?.errorBody()?.string() }.getOrNull()
+    /** Для ответов, разобранных вручную: медиа читается без Retrofit-конвертера. */
+    fun fromResponse(status: Int, body: String?): AppError = fromHttp(status, body)
+
+    private fun HttpException.errorBodyString(): String? =
+        runCatching { response()?.errorBody()?.string() }.getOrNull()
+
+    private fun fromHttp(status: Int, body: String?): AppError {
         val parsed = body?.let(::parse)
 
         parsed?.code?.let { code -> byCode(code)?.let { return it } }
 
-        Timber.w("Нераспознанная ошибка backend | status=%s | code=%s", status, parsed?.code)
+        Timber.w("Нераспознанная ошибка сервера | status=%s | code=%s", status, parsed?.code)
         return when (status) {
             401 -> AppError.Unauthorized
-            404 -> AppError.AgentNotFound
+            // Единственный маршрут, дающий 404, — медиа. Остальные защищённые
+            // маршруты отвечают только 401.
+            404 -> AppError.MediaNotFound
             409 -> AppError.DeviceAlreadyActivated
             422 -> AppError.Validation(parsed?.detail)
             else -> AppError.Server(parsed?.code, status)
         }
     }
 
+    /** Коды выписаны из `server/src/terentiy_server/application/services.py`. */
     private fun byCode(code: String): AppError? = when (code) {
         "invalid_installation_code" -> AppError.InvalidInstallationCode
         "device_already_activated" -> AppError.DeviceAlreadyActivated
         "invalid_pin" -> AppError.InvalidPin
         "unauthorized", "forbidden" -> AppError.Unauthorized
-        "agent_not_found" -> AppError.AgentNotFound
-        "image_not_available" -> AppError.ImageNotAvailable
-        "invalid_activation", "invalid_status", "invalid_image" -> AppError.Validation(null)
+        "media_not_found" -> AppError.MediaNotFound
+        "invalid_activation" -> AppError.Validation(null)
         else -> null
     }
 

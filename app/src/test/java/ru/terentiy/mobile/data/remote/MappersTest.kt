@@ -1,122 +1,192 @@
 package ru.terentiy.mobile.data.remote
 
 import java.time.Instant
-import java.util.Base64
-import org.junit.Assert.assertArrayEquals
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import ru.terentiy.mobile.domain.EventStatus
 import ru.terentiy.mobile.domain.Tri
 
+/**
+ * Граница между формой ответа сервера и доменной моделью.
+ *
+ * Отдельное внимание — полю `analysis`: в контракте это свободный объект, его
+ * форма меняется вместе с правилами распознавания, и неожиданное содержимое
+ * обязано давать `null`, а не ронять весь список событий.
+ */
 class MappersTest {
 
-    private fun dto(
-        agentOnline: Boolean? = true,
-        cameraConnected: Boolean? = true,
-        streamActive: Boolean? = true,
-        mlReady: Boolean? = true,
-        reportedAt: String? = "2026-09-13T07:00:00Z",
-        lastFrameAt: String? = "2026-09-13T07:00:01Z",
-    ) = AgentStatusDto(
-        id = "e2c1",
-        householdId = "house-test-001",
-        name = "Ноутбук",
-        cameraId = "camera-room-1",
-        softwareVersion = "0.1.0",
-        createdAt = "2026-09-01T00:00:00Z",
-        online = true,
-        reportedAt = reportedAt,
-        agentOnline = agentOnline,
-        cameraConnected = cameraConnected,
-        streamActive = streamActive,
-        mlReady = mlReady,
-        queueSize = 0,
-        modelVersion = "yolo26m.pt",
-        lastFrameAt = lastFrameAt,
-    )
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun analysis(raw: String): JsonObject = json.parseToJsonElement(raw) as JsonObject
 
     @Test
-    fun `отсутствующие флаги становятся UNKNOWN`() {
-        val agent = dto(
-            agentOnline = null,
-            cameraConnected = null,
-            streamActive = null,
-            mlReady = null,
+    fun `токен переносится вместе с идентификатором дома`() {
+        val session = MobileTokenDto(
+            accessToken = "opaque-token",
+            householdId = "house-1",
         ).toDomain()
+
+        assertEquals("opaque-token", session.accessToken)
+        assertEquals("house-1", session.householdId)
+    }
+
+    @Test
+    fun `агент разбирается целиком`() {
+        val agent = AgentDto(
+            id = "agent-1",
+            householdId = "house-1",
+            name = "Гостиная",
+            cameraId = "camera-1",
+            softwareVersion = "1.0.0",
+            createdAt = "2026-09-20T10:00:00Z",
+            online = true,
+            reportedAt = "2026-09-30T12:00:00Z",
+            agentOnline = true,
+            cameraConnected = true,
+            streamActive = true,
+            queueSize = 0,
+            lastFrameAt = "2026-09-30T11:59:58Z",
+        ).toDomain()
+
+        assertEquals("agent-1", agent.id)
+        assertEquals("Гостиная", agent.name)
+        assertEquals(true, agent.online)
+        assertEquals(Tri.YES, agent.cameraConnected)
+        assertEquals(0, agent.queueSize)
+        assertEquals(Instant.parse("2026-09-30T12:00:00Z"), agent.reportedAt)
+    }
+
+    @Test
+    fun `null в полях агента означает «неизвестно», а не «нет»`() {
+        // Сервер отдаёт null, пока агент ни разу не присылал heartbeat. Схлопнуть
+        // это в false значило бы показать «камера недоступна» вместо «данных нет».
+        val agent = AgentDto(id = "agent-1").toDomain()
 
         assertEquals(Tri.UNKNOWN, agent.agentOnline)
         assertEquals(Tri.UNKNOWN, agent.cameraConnected)
         assertEquals(Tri.UNKNOWN, agent.streamActive)
-        assertEquals(Tri.UNKNOWN, agent.mlReady)
-    }
-
-    @Test
-    fun `false остаётся NO и не смешивается с неизвестностью`() {
-        val agent = dto(cameraConnected = false).toDomain()
-        assertEquals(Tri.NO, agent.cameraConnected)
-    }
-
-    @Test
-    fun `агент без heartbeat помечается как никогда не выходивший на связь`() {
-        val agent = dto(reportedAt = null, lastFrameAt = null).toDomain()
-        assertTrue(agent.neverReported)
+        assertNull(agent.queueSize)
+        assertNull(agent.reportedAt)
         assertNull(agent.lastFrameAt)
+        assertTrue(agent.neverReported)
     }
 
     @Test
-    fun `время в UTC разбирается`() {
-        assertEquals(Instant.parse("2026-09-13T07:00:00Z"), "2026-09-13T07:00:00Z".toInstantOrNull())
+    fun `событие разбирается вместе с разбором правил`() {
+        val event = FallEventDto(
+            id = "event-1",
+            agentId = "agent-1",
+            frameId = "frame-1",
+            frameMediaId = "media-frame-1",
+            clipMediaId = "media-clip-1",
+            capturedAt = "2026-09-30T11:58:00Z",
+            createdAt = "2026-09-30T11:58:18Z",
+            status = "confirmed",
+            analysis = analysis(
+                """
+                {
+                  "captured_at": "2026-09-30T11:58:00Z",
+                  "ml": {"person_model": "yolo26m", "pose_model": "yolo26n-pose"},
+                  "people": [{"bbox_xyxy": [1.0, 2.0, 3.0, 4.0], "confidence": 0.91}],
+                  "poses": [{"track_id": 3, "keypoints": [{"name": "nose", "x": 1.0, "y": 2.0}]}],
+                  "fall": {
+                    "detected": true,
+                    "status": "fall_confirmed",
+                    "track_id": 3,
+                    "candidate_rules": ["aspect_ratio=1.400"],
+                    "confirmation_rules": ["angular_speed=118deg/s"],
+                    "candidate_votes": 1,
+                    "candidate_votes_required": 1,
+                    "confirmation_votes": 2,
+                    "confirmation_votes_required": 1
+                  },
+                  "processing_time_ms": 84.219
+                }
+                """.trimIndent()
+            ),
+        ).toDomain()
+
+        assertNotNull(event)
+        assertEquals(EventStatus.CONFIRMED, event!!.status)
+        assertEquals("media-frame-1", event.frameMediaId)
+        assertEquals("media-clip-1", event.clipMediaId)
+        assertEquals(Instant.parse("2026-09-30T11:58:00Z"), event.capturedAt)
+
+        val fall = event.analysis!!
+        assertEquals(3, fall.trackId)
+        assertEquals(listOf("aspect_ratio=1.400"), fall.candidateRules)
+        assertEquals(listOf("angular_speed=118deg/s"), fall.confirmationRules)
+        assertEquals(2, fall.confirmationVotes)
+        assertEquals(1, fall.confirmationVotesRequired)
+        assertEquals(84.219, fall.processingTimeMs!!, 0.001)
     }
 
     @Test
-    fun `время со смещением приводится к UTC`() {
-        assertEquals(
-            Instant.parse("2026-09-13T07:00:00Z"),
-            "2026-09-13T10:00:00+03:00".toInstantOrNull(),
-        )
+    fun `analysis неожиданной формы не роняет событие`() {
+        // Самый важный тест на прямую совместимость: правила на сервере меняются,
+        // и приложение не должно переставать показывать события.
+        val strange = FallEventDto(
+            id = "event-2",
+            clipMediaId = "media-clip-2",
+            analysis = analysis("""{"fall": "не объект", "unexpected": [1, 2, 3]}"""),
+        ).toDomain()
+
+        assertNotNull(strange)
+        assertNull(strange!!.analysis)
+
+        val empty = FallEventDto(id = "event-3", clipMediaId = "clip-3", analysis = analysis("{}")).toDomain()
+        assertNotNull(empty)
+        assertNull(empty!!.analysis)
+
+        val missing = FallEventDto(id = "event-4", clipMediaId = "clip-4", analysis = null).toDomain()
+        assertNotNull(missing)
+        assertNull(missing!!.analysis)
     }
 
     @Test
-    fun `время без зоны считается UTC`() {
-        assertEquals(Instant.parse("2026-09-13T07:00:00Z"), "2026-09-13T07:00:00".toInstantOrNull())
+    fun `неизвестное состояние события не роняет разбор`() {
+        val event = FallEventDto(id = "e", clipMediaId = "c", status = "suspected").toDomain()
+        assertEquals(EventStatus.OTHER, event!!.status)
     }
 
     @Test
-    fun `испорченное время не роняет разбор ответа`() {
+    fun `событие без клипа отбрасывается`() {
+        // По контракту такого быть не может: сервер отдаёт только события с
+        // загруженным клипом. Но запись с пустым идентификатором увела бы
+        // карточку за медиа в никуда.
+        assertNull(FallEventDto(id = "e1", clipMediaId = null).toDomain())
+        assertNull(FallEventDto(id = "e2", clipMediaId = "  ").toDomain())
+
+        val page = FallEventListDto(
+            items = listOf(
+                FallEventDto(id = "good", clipMediaId = "clip-1"),
+                FallEventDto(id = "bad", clipMediaId = null),
+            )
+        ).toDomain()
+        assertEquals(listOf("good"), page.map { it.id })
+    }
+
+    @Test
+    fun `время принимается в трёх форматах`() {
+        assertEquals(Instant.parse("2026-09-30T10:00:00Z"), "2026-09-30T10:00:00Z".toInstantOrNull())
+        assertEquals(Instant.parse("2026-09-30T07:00:00Z"), "2026-09-30T10:00:00+03:00".toInstantOrNull())
+        // Без смещения значение трактуется как UTC: так его отдаёт агент.
+        assertEquals(Instant.parse("2026-09-30T10:00:00Z"), "2026-09-30T10:00:00".toInstantOrNull())
+    }
+
+    @Test
+    fun `неразбираемое время даёт null, но не ломает состояние`() {
         assertNull("вчера вечером".toInstantOrNull())
         assertNull("".toInstantOrNull())
         assertNull(null.toInstantOrNull())
-    }
 
-    @Test
-    fun `изображения декодируются из base64`() {
-        val bytes = byteArrayOf(1, 2, 3, 4, 5)
-        val encoded = Base64.getEncoder().encodeToString(bytes)
-        val image = LatestImageDto(
-            agentId = "e2c1",
-            capturedAt = "2026-09-13T07:00:00Z",
-            detection = DetectionDto(personPresent = true, personCount = 2),
-            motion = MotionDto(motionPresent = true, regionCount = 3),
-            contentBase64 = encoded,
-            motionContentBase64 = encoded,
-        ).toDomain()
-
-        assertArrayEquals(bytes, image.personJpeg)
-        assertArrayEquals(bytes, image.motionJpeg)
-        assertEquals(2, image.personCount)
-        assertEquals(3, image.motionRegionCount)
-    }
-
-    @Test
-    fun `повреждённое изображение даёт пустой массив, а не исключение`() {
-        val image = LatestImageDto(
-            agentId = "e2c1",
-            contentBase64 = "это не base64!!!",
-            motionContentBase64 = "тоже нет",
-        ).toDomain()
-
-        assertEquals(0, image.personJpeg.size)
-        assertEquals(0, image.motionJpeg.size)
+        val agent = AgentDto(id = "a", online = true, reportedAt = "не время").toDomain()
+        assertNull(agent.reportedAt)
+        assertEquals(true, agent.online)
     }
 }

@@ -24,4 +24,13 @@ class TriTest {
         assertFalse(Tri.NO.isYes)
         assertFalse(Tri.UNKNOWN.isYes)
     }
+
+    @Test
+    fun `isKnown отделяет отсутствие данных от отрицательного ответа`() {
+        // На этом различении держится вся матрица состояний контура: «нет
+        // данных» и «камера не работает» — разные сообщения пользователю.
+        assertTrue(Tri.YES.isKnown)
+        assertTrue(Tri.NO.isKnown)
+        assertFalse(Tri.UNKNOWN.isKnown)
+    }
 }

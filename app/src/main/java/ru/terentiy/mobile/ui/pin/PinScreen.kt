@@ -3,14 +3,14 @@ package ru.terentiy.mobile.ui.pin
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -21,27 +21,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.terentiy.mobile.R
-import ru.terentiy.mobile.ui.common.ButtonContent
+import ru.terentiy.mobile.ui.common.HomeIllustration
+import ru.terentiy.mobile.ui.common.IconKey
 import ru.terentiy.mobile.ui.common.MessageBanner
+import ru.terentiy.mobile.ui.common.PasswordField
+import ru.terentiy.mobile.ui.common.PrimaryButton
 
 @Composable
 fun PinScreen(
     onLoggedIn: () -> Unit,
-    onReactivate: () -> Unit,
+    onActivateAgain: () -> Unit,
     viewModel: PinViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(state.loggedIn) { if (state.loggedIn) onLoggedIn() }
-    LaunchedEffect(state.forgotten) { if (state.forgotten) onReactivate() }
+    LaunchedEffect(state.forgotten) { if (state.forgotten) onActivateAgain() }
 
     PinContent(
         state = state,
@@ -62,82 +64,83 @@ fun PinContent(
     onSubmit: () -> Unit,
     onForgetActivation: () -> Unit,
 ) {
-    var confirmReactivate by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
 
-    if (confirmReactivate) {
+    if (confirmReset) {
         AlertDialog(
-            onDismissRequest = { confirmReactivate = false },
-            title = { Text(stringResource(R.string.pin_reactivate)) },
-            text = { Text(stringResource(R.string.pin_reactivate_warning)) },
+            onDismissRequest = { confirmReset = false },
+            title = { Text(stringResource(R.string.pin_forgot)) },
+            text = { Text(stringResource(R.string.pin_forgot_warning)) },
             confirmButton = {
                 TextButton(onClick = {
-                    confirmReactivate = false
+                    confirmReset = false
                     onForgetActivation()
                 }) { Text(stringResource(R.string.common_continue)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmReactivate = false }) {
+                TextButton(onClick = { confirmReset = false }) {
                     Text(stringResource(R.string.common_close))
                 }
             },
         )
     }
 
-    Scaffold { padding ->
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            HomeIllustration()
+
             Text(
                 text = stringResource(R.string.pin_title),
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center,
             )
             Text(
                 text = stringResource(R.string.pin_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
+
+            Spacer(Modifier.height(4.dp))
 
             state.errorRes?.let { MessageBanner(text = stringResource(it)) }
 
             if (state.locked) {
                 MessageBanner(
                     text = stringResource(R.string.pin_locked, state.lockSecondsLeft),
-                    container = MaterialTheme.colorScheme.secondaryContainer,
-                    content = MaterialTheme.colorScheme.onSecondaryContainer,
+                    container = MaterialTheme.colorScheme.surfaceVariant,
+                    content = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            OutlinedTextField(
+            PasswordField(
                 value = state.pin,
                 onValueChange = onPinChange,
-                label = { Text(stringResource(R.string.pin_field)) },
-                singleLine = true,
+                label = stringResource(R.string.pin_field),
+                leadingIcon = IconKey,
                 enabled = !state.locked,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.NumberPassword,
-                    imeAction = ImeAction.Done,
-                ),
-                modifier = Modifier.fillMaxWidth(),
+                keyboardType = KeyboardType.NumberPassword,
             )
 
-            Button(
+            Spacer(Modifier.height(4.dp))
+
+            PrimaryButton(
+                text = stringResource(R.string.pin_submit),
                 onClick = onSubmit,
                 enabled = state.canSubmit,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                ButtonContent(loading = state.loading, label = stringResource(R.string.pin_submit))
-            }
+                loading = state.loading,
+            )
 
-            TextButton(
-                onClick = { confirmReactivate = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.pin_reactivate))
+            TextButton(onClick = { confirmReset = true }) {
+                Text(stringResource(R.string.pin_forgot))
             }
         }
     }

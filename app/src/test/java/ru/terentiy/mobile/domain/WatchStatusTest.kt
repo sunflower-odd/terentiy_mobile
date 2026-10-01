@@ -1,108 +1,139 @@
 package ru.terentiy.mobile.domain
 
+import java.time.Duration
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Матрица состояний наблюдения.
+ * Матрица состояния контура наблюдения.
  *
- * Главное, что проверяется: `UNKNOWN` не равно `NO`. Агент, который ни разу
- * не присылал heartbeat, не должен выглядеть как агент с выключенной камерой.
+ * Состояние вычисляется на клиенте: в реализованном контракте поля «наблюдение
+ * включено» нет вовсе. Поэтому матрица покрывается целиком — это единственное
+ * место, где решается, что показать пользователю.
  */
 class WatchStatusTest {
 
+    private val now: Instant = Instant.parse("2026-09-30T12:00:00Z")
+
     private fun agent(
         online: Boolean = true,
+        agentOnline: Tri = Tri.YES,
         camera: Tri = Tri.YES,
         stream: Tri = Tri.YES,
-        ml: Tri = Tri.YES,
-        reportedAt: Instant? = Instant.parse("2026-09-13T10:00:00Z"),
+        queueSize: Int? = 0,
+        reportedAt: Instant? = now,
+        lastFrameAt: Instant? = now.minusSeconds(2),
     ) = Agent(
         id = "agent-1",
-        name = "Ноутбук",
-        cameraId = "camera-room-1",
-        softwareVersion = "0.1.0",
-        modelVersion = "yolo26m.pt",
+        householdId = "house-1",
+        name = "Гостиная",
+        cameraId = "camera-1",
+        softwareVersion = "1.0.0",
+        createdAt = now.minus(Duration.ofDays(3)),
         online = online,
-        agentOnline = Tri.of(online),
+        agentOnline = agentOnline,
         cameraConnected = camera,
         streamActive = stream,
-        mlReady = ml,
-        queueSize = 0,
+        queueSize = queueSize,
         reportedAt = reportedAt,
-        lastFrameAt = null,
+        lastFrameAt = lastFrameAt,
     )
 
     @Test
-    fun `всё работает — наблюдение активно`() {
+    fun `здоровый контур — наблюдение работает`() {
         assertEquals(WatchState.WATCHING, WatchStatus.of(agent()))
     }
 
     @Test
-    fun `агент не на связи важнее любых других флагов`() {
-        val offline = agent(online = false, camera = Tri.NO, ml = Tri.NO)
-        assertEquals(WatchState.AGENT_OFFLINE, WatchStatus.of(offline))
-    }
-
-    @Test
-    fun `камера отключена — камера недоступна`() {
-        assertEquals(WatchState.CAMERA_UNAVAILABLE, WatchStatus.of(agent(camera = Tri.NO)))
-    }
-
-    @Test
-    fun `поток не идёт — камера недоступна`() {
-        assertEquals(WatchState.CAMERA_UNAVAILABLE, WatchStatus.of(agent(stream = Tri.NO)))
-    }
-
-    @Test
-    fun `состояние камеры неизвестно — это не норма, а камера недоступна`() {
-        assertEquals(WatchState.CAMERA_UNAVAILABLE, WatchStatus.of(agent(camera = Tri.UNKNOWN)))
-    }
-
-    @Test
-    fun `модель не готова — анализ не выполняется`() {
-        assertEquals(WatchState.ML_NOT_READY, WatchStatus.of(agent(ml = Tri.NO)))
-    }
-
-    @Test
-    fun `готовность модели неизвестна — анализ не выполняется`() {
-        assertEquals(WatchState.ML_NOT_READY, WatchStatus.of(agent(ml = Tri.UNKNOWN)))
-    }
-
-    @Test
-    fun `пустой список агентов — это отдельное состояние, а не норма`() {
+    fun `пустой список агентов — это отдельное состояние, а не всё хорошо`() {
         assertEquals(WatchState.NO_AGENT, WatchStatus.worstOf(emptyList()))
     }
 
     @Test
-    fun `один агент — сводное состояние совпадает с его собственным`() {
-        assertEquals(WatchState.WATCHING, WatchStatus.worstOf(listOf(agent())))
+    fun `агент ни разу не отчитался — состояние неизвестно, а не поломка`() {
+        val silent = agent(reportedAt = null, lastFrameAt = null, online = false)
+        assertEquals(WatchState.UNKNOWN, WatchStatus.of(silent))
     }
 
     @Test
-    fun `несколько агентов — берётся худшее состояние`() {
-        val agents = listOf(agent(), agent(camera = Tri.NO), agent(ml = Tri.NO))
-        assertEquals(WatchState.CAMERA_UNAVAILABLE, WatchStatus.worstOf(agents))
+    fun `сервер считает агента недоступным, и это важнее его собственных флагов`() {
+        // agent_online остаётся true навсегда: это последнее, что агент успел
+        // сказать о себе. Вердикт строится на серверном online.
+        val dead = agent(online = false, agentOnline = Tri.YES, camera = Tri.YES, stream = Tri.YES)
+        assertEquals(WatchState.AGENT_OFFLINE, WatchStatus.of(dead))
     }
 
     @Test
-    fun `несколько агентов — отключённый агент перевешивает исправные`() {
-        val agents = listOf(agent(), agent(online = false))
-        assertEquals(WatchState.AGENT_OFFLINE, WatchStatus.worstOf(agents))
+    fun `камера отключена`() {
+        assertEquals(WatchState.CAMERA_UNAVAILABLE, WatchStatus.of(agent(camera = Tri.NO)))
     }
 
     @Test
-    fun `порядок констант задаёт серьёзность и не должен меняться`() {
+    fun `поток прервался при подключённой камере`() {
+        assertEquals(WatchState.STREAM_STALLED, WatchStatus.of(agent(stream = Tri.NO)))
+    }
+
+    @Test
+    fun `неизвестные флаги при живом агенте не считаются исправностью`() {
+        assertEquals(WatchState.UNKNOWN, WatchStatus.of(agent(camera = Tri.UNKNOWN)))
+        assertEquals(WatchState.UNKNOWN, WatchStatus.of(agent(stream = Tri.UNKNOWN)))
+    }
+
+    @Test
+    fun `отставание кадров считается по серверным временам, а не по часам телефона`() {
+        // Оба времени приходят с сервера. Если бы отставание считалось от
+        // Instant.now(), сбитые часы устройства давали бы ложную тревогу.
+        val lagging = agent(reportedAt = now, lastFrameAt = now.minusSeconds(120))
+        assertEquals(WatchState.FRAMES_DELAYED, WatchStatus.of(lagging))
+
+        val fresh = agent(reportedAt = now.minus(Duration.ofHours(5)), lastFrameAt = now.minus(Duration.ofHours(5)).minusSeconds(3))
+        // Данные старые, но отставания между heartbeat и кадром нет: контур был
+        // исправен на момент последнего отчёта.
+        assertEquals(WatchState.WATCHING, WatchStatus.of(fresh))
+    }
+
+    @Test
+    fun `кадров нет вовсе, хотя агент отчитался`() {
+        assertEquals(WatchState.FRAMES_DELAYED, WatchStatus.of(agent(lastFrameAt = null)))
+    }
+
+    @Test
+    fun `растущая очередь на агенте означает, что падение не будет замечено`() {
+        assertEquals(WatchState.FRAMES_DELAYED, WatchStatus.of(agent(queueSize = 24)))
+        assertEquals(WatchState.WATCHING, WatchStatus.of(agent(queueSize = 3)))
+    }
+
+    @Test
+    fun `пороги задаются политикой, а не зашиты в матрицу`() {
+        val lagging = agent(reportedAt = now, lastFrameAt = now.minusSeconds(45))
+        assertEquals(WatchState.WATCHING, WatchStatus.of(lagging))
         assertEquals(
-            listOf(
-                WatchState.NO_AGENT,
-                WatchState.AGENT_OFFLINE,
-                WatchState.CAMERA_UNAVAILABLE,
-                WatchState.ML_NOT_READY,
-                WatchState.WATCHING,
-            ),
-            WatchState.entries.toList(),
+            WatchState.FRAMES_DELAYED,
+            WatchStatus.of(lagging, WatchPolicy(frameLagLimit = Duration.ofSeconds(30))),
         )
+    }
+
+    @Test
+    fun `при нескольких агентах берётся худшее состояние`() {
+        val healthy = agent()
+        val broken = agent(camera = Tri.NO)
+        assertEquals(WatchState.CAMERA_UNAVAILABLE, WatchStatus.worstOf(listOf(healthy, broken)))
+        assertEquals(WatchState.CAMERA_UNAVAILABLE, WatchStatus.worstOf(listOf(broken, healthy)))
+    }
+
+    @Test
+    fun `молчащий агент считается худшим, чем заведомо выключенный`() {
+        // Про выключенный известно, что он выключен. Про молчащий неизвестно
+        // даже то, работал ли контур когда-либо.
+        val silent = agent(reportedAt = null, lastFrameAt = null)
+        val offline = agent(online = false)
+        assertEquals(WatchState.UNKNOWN, WatchStatus.worstOf(listOf(offline, silent)))
+    }
+
+    @Test
+    fun `отставание не может быть отрицательным`() {
+        val ahead = agent(reportedAt = now, lastFrameAt = now.plusSeconds(30))
+        assertEquals(Duration.ZERO, WatchStatus.frameLag(ahead))
     }
 }

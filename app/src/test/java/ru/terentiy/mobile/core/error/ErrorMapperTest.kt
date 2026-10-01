@@ -12,8 +12,12 @@ import retrofit2.HttpException
 import retrofit2.Response
 
 /**
- * Backend отдаёт ошибки в двух разных форматах, и оба обязаны разбираться.
- * Третий случай — тело, которое не является ни тем, ни другим.
+ * Сервер отдаёт ошибки в двух форматах, и оба обязаны разбираться: прикладной
+ * `{code, message}` и собственный формат валидации FastAPI `{detail: [...]}`
+ * **без поля code**. Третий случай — тело, которое не является ни тем, ни
+ * другим, — не должен приводить к падению.
+ *
+ * Коды выписаны из `terentiy_ai/server/src/terentiy_server/application/services.py`.
  */
 class ErrorMapperTest {
 
@@ -24,64 +28,92 @@ class ErrorMapperTest {
     )
 
     @Test
-    fun `прикладная ошибка backend разбирается по коду`() {
-        val error = mapper.map(
-            httpError(401, """{"code":"invalid_installation_code","message":"Installation code is invalid"}""")
+    fun `код установки не подошёл`() {
+        assertEquals(
+            AppError.InvalidInstallationCode,
+            mapper.map(httpError(401, """{"code":"invalid_installation_code","message":"Installation code is invalid"}""")),
         )
-        assertEquals(AppError.InvalidInstallationCode, error)
     }
 
     @Test
-    fun `повторная активация устройства`() {
-        val error = mapper.map(
-            httpError(409, """{"code":"device_already_activated","message":"Mobile device is already activated"}""")
+    fun `устройство уже подключено`() {
+        assertEquals(
+            AppError.DeviceAlreadyActivated,
+            mapper.map(httpError(409, """{"code":"device_already_activated","message":"Device is already activated"}""")),
         )
-        assertEquals(AppError.DeviceAlreadyActivated, error)
     }
 
     @Test
-    fun `неверный PIN`() {
+    fun `неверный PIN — это не потеря сессии`() {
+        // Разница решает, стирать ли сохранённый токен: неверный PIN сессию не
+        // трогает, неизвестный токен — стирает.
         val error = mapper.map(httpError(401, """{"code":"invalid_pin","message":"Device ID or PIN is invalid"}"""))
         assertEquals(AppError.InvalidPin, error)
+        assertTrue(error != AppError.Unauthorized)
     }
 
     @Test
-    fun `недействительный токен`() {
-        val error = mapper.map(httpError(401, """{"code":"unauthorized","message":"Valid bearer token required"}"""))
-        assertEquals(AppError.Unauthorized, error)
-    }
-
-    @Test
-    fun `кадра ещё нет`() {
-        val error = mapper.map(
-            httpError(404, """{"code":"image_not_available","message":"Agent has not sent an image"}""")
+    fun `неизвестный токен требует повторного входа`() {
+        assertEquals(
+            AppError.Unauthorized,
+            mapper.map(httpError(401, """{"code":"unauthorized","message":"Valid bearer token required"}""")),
         )
-        assertEquals(AppError.ImageNotAvailable, error)
     }
 
     @Test
-    fun `отказ валидации pydantic приходит в собственном формате FastAPI`() {
+    fun `медиа не найдено`() {
+        assertEquals(
+            AppError.MediaNotFound,
+            mapper.map(httpError(404, """{"code":"media_not_found","message":"Media not found"}""")),
+        )
+    }
+
+    @Test
+    fun `прикладной отказ валидации приходит с кодом`() {
+        assertTrue(
+            mapper.map(httpError(422, """{"code":"invalid_activation","message":"PIN must contain six digits"}"""))
+                is AppError.Validation
+        )
+    }
+
+    @Test
+    fun `отказ валидации pydantic приходит в собственном формате FastAPI без кода`() {
         val body = """{"detail":[{"loc":["body","pin"],"msg":"String should match pattern","type":"string_pattern_mismatch"}]}"""
-        val error = mapper.map(httpError(422, body))
-        assertTrue(error is AppError.Validation)
+        assertTrue(mapper.map(httpError(422, body)) is AppError.Validation)
     }
 
     @Test
-    fun `неизвестный код прикладной ошибки не роняет разбор`() {
-        val error = mapper.map(httpError(500, """{"code":"something_new","message":"..."}"""))
-        assertEquals(AppError.Server("something_new", 500), error)
+    fun `статус без кода разбирается по статусу`() {
+        assertEquals(AppError.Unauthorized, mapper.map(httpError(401, "")))
+        // Единственный маршрут, дающий 404, — медиа: защищённые маршруты агентов
+        // и событий отвечают только 401.
+        assertEquals(AppError.MediaNotFound, mapper.map(httpError(404, "")))
+        assertEquals(AppError.DeviceAlreadyActivated, mapper.map(httpError(409, "")))
+    }
+
+    @Test
+    fun `неизвестный код не роняет разбор`() {
+        assertEquals(AppError.Server("something_new", 500), mapper.map(httpError(500, """{"code":"something_new"}""")))
     }
 
     @Test
     fun `тело, не являющееся JSON, не роняет разбор`() {
-        val error = mapper.map(httpError(502, "<html><body>Bad Gateway</body></html>"))
-        assertEquals(AppError.Server(null, 502), error)
+        assertEquals(AppError.Server(null, 502), mapper.map(httpError(502, "<html><body>Bad Gateway</body></html>")))
     }
 
     @Test
     fun `пустое тело не роняет разбор`() {
-        val error = mapper.map(httpError(500, ""))
-        assertEquals(AppError.Server(null, 500), error)
+        assertEquals(AppError.Server(null, 500), mapper.map(httpError(500, "")))
+    }
+
+    @Test
+    fun `ответ, разобранный вручную, проходит тот же путь`() {
+        // Медиа читается без конвертера Retrofit, поэтому у маппера есть второй вход.
+        assertEquals(
+            AppError.MediaNotFound,
+            mapper.fromResponse(404, """{"code":"media_not_found","message":"Media not found"}"""),
+        )
+        assertEquals(AppError.Unauthorized, mapper.fromResponse(401, null))
     }
 
     @Test

@@ -35,7 +35,7 @@ data class PinUiState(
  * Задержка после неудачных попыток — мера против случайного перебора на самом
  * устройстве, а не защита: backend не ограничивает частоту обращений к
  * `POST /api/v1/mobile/login`, и шестизначный PIN перебирается запросами в обход
- * приложения. Настоящее ограничение нужно на сервере, см. docs/backlog-mobile.md §4.
+ * приложения. Настоящее ограничение нужно на сервере, см. docs/backlog-mobile.md.
  */
 @HiltViewModel
 class PinViewModel @Inject constructor(

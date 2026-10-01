@@ -13,6 +13,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
+import ru.terentiy.mobile.domain.Session
 import timber.log.Timber
 
 /**
@@ -27,7 +28,12 @@ import timber.log.Timber
  * бесполезен. Соответственно, файл исключён из резервного копирования
  * (см. res/xml/backup_rules.xml). Если ключ окажется недоступен — например, после
  * смены способа блокировки экрана — значение считается утраченным и стирается:
- * приложение попросит PIN заново, а не упадёт.
+ * приложение попросит войти заново, а не упадёт.
+ *
+ * Сессия хранится одной строкой с разделителем, а не двумя ключами: одно чтение
+ * keystore вместо двух, и токен с идентификатором домохозяйства невозможно
+ * получить по отдельности. Refresh-токена в реализованном контракте нет —
+ * хранить нечего, кроме токена и household.
  */
 @Singleton
 class KeystoreSecureStorage @Inject constructor(
@@ -41,15 +47,47 @@ class KeystoreSecureStorage @Inject constructor(
     private val lock = Any()
 
     override fun deviceId(): String = synchronized(lock) {
-        read(KEY_DEVICE_ID) ?: UUID.randomUUID().toString().also { write(KEY_DEVICE_ID, it) }
+        read(KEY_DEVICE_ID) ?: newDeviceId()
     }
 
-    override fun token(): String? = read(KEY_TOKEN)
+    /**
+     * Выдаёт устройству новый идентификатор.
+     *
+     * Единственный способ пройти активацию заново: `POST /mobile/activate` с уже
+     * известным `device_id` отвечает `409 device_already_activated`, а маршрута
+     * сброса PIN или удаления устройства в контракте нет. Прежняя запись остаётся
+     * на сервере навсегда — см. docs/backlog-mobile.md.
+     *
+     * Вызывается только из подтверждающего диалога: пользователь должен понимать,
+     * что делает.
+     */
+    override fun rotateDeviceId(): String = synchronized(lock) {
+        clearSession()
+        newDeviceId()
+    }
 
-    override fun saveToken(value: String) = write(KEY_TOKEN, value)
+    private fun newDeviceId(): String =
+        UUID.randomUUID().toString().also { write(KEY_DEVICE_ID, it) }
 
-    override fun clearToken() {
-        prefs.edit().remove(KEY_TOKEN).apply()
+    override fun session(): Session? {
+        synchronized(lock) {
+        val raw = read(KEY_SESSION) ?: return null
+        val parts = raw.split(SEPARATOR)
+        if (parts.size != 2 || parts[0].isEmpty()) {
+            Timber.w("Повреждённая запись сессии, стираю")
+            clearSession()
+            return null
+        }
+        return Session(accessToken = parts[0], householdId = parts[1])
+        }
+    }
+
+    override fun saveSession(session: Session) = synchronized(lock) {
+        write(KEY_SESSION, session.accessToken + SEPARATOR + session.householdId)
+    }
+
+    override fun clearSession() {
+        prefs.edit().remove(KEY_SESSION).apply()
     }
 
     private fun write(key: String, value: String) {
@@ -109,6 +147,8 @@ class KeystoreSecureStorage @Inject constructor(
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val TAG_BITS = 128
         const val KEY_DEVICE_ID = "device_id"
-        const val KEY_TOKEN = "access_token"
+        const val KEY_SESSION = "session"
+        // Токен base64url-подобный, разделитель заведомо не встречается внутри него.
+        const val SEPARATOR = "\u0000"
     }
 }
