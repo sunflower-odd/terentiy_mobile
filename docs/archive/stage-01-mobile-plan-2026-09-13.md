@@ -1,6 +1,6 @@
 # План разработки. «Терентий» — Stage 01, мобильное приложение (Android)
 
-**Статус:** актуален для контракта 1.0.0; по 1.1.0-draft см. [migration-to-contract-1.1.md](../migration-to-contract-1.1.md)
+**Статус:** актуален для контракта 1.0.0; по 1.1.0-draft см. [migration-to-contract-1.1.md](migration-to-contract-1.1.md)
 **Версия:** 2.0
 **Дата:** 13 сентября 2026 года
 **Заменяет:** [`docs/archive/stage-01-mobile-plan-2026-08-13.md`](stage-01-mobile-plan-2026-08-13.md)

@@ -2,7 +2,7 @@
 
 **Дата:** 30 сентября 2026
 **Источник:** `terentiy_ai/contracts/openapi/mobile-server.openapi.yaml`, коммит `57f8e83`
-**Предыдущий разбор:** [migration-to-contract-1.1.md](migration-to-contract-1.1.md) — исторический
+**Предыдущий разбор:** [migration-to-contract-1.1.md](archive/migration-to-contract-1.1.md) — исторический
 
 ## Что случилось
 

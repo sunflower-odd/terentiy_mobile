@@ -5,7 +5,7 @@
 **Дата:** 29 сентября 2026 года
 **Заменяет:** [`docs/archive/stage-01-mobile-plan-2026-09-13.md`](stage-01-mobile-plan-2026-09-13.md)
 **Контракт:** [`contracts/stage01-mobile-api.yaml`](../../contracts/stage01-mobile-api.yaml) — копия из `terentiy_ai`, коммит `2d5141d`, 22 сентября 2026, версия **1.1.0-draft**
-**Разбор перехода:** [migration-to-contract-1.1.md](../migration-to-contract-1.1.md)
+**Разбор перехода:** [migration-to-contract-1.1.md](migration-to-contract-1.1.md)
 **Связанные документы:** `terentiy_ai/docs/SDD-000/SDD-000_Terentiy.md`, `stage-01-mobile.md`, `android-demo-mobile-tz.md`
 
 > **Важно.** Backend контракт 1.1.0 **не реализует**: ни одного из новых маршрутов

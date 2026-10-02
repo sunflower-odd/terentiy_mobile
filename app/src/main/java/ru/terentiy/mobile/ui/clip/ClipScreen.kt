@@ -3,6 +3,7 @@ package ru.terentiy.mobile.ui.clip
 import android.content.Intent
 import android.widget.MediaController
 import android.widget.VideoView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -143,41 +145,44 @@ private fun DownloadProgress(state: ClipUiState) {
  * ExoPlayer окупился бы только вместе с ними. Зато не добавляется ни одной
  * зависимости, а значит нечему разойтись по версиям с AGP.
  *
- * Запасной выход рядом — открыть во внешнем плеере. Если [VideoView] на чужом
- * устройстве поведёт себя плохо, показ не сорвётся.
+ * **Контейнер не обрезает содержимое, и это обязательное условие.** `VideoView`
+ * рисует через `SurfaceView` — отдельный аппаратный слой, который система
+ * подкладывает под иерархию представлений, пробивая в ней окно. Обрезка такого
+ * слоя невозможна: закруглённые углы родителя дают не скругление видео, а
+ * заливку поверх него, то есть чёрный прямоугольник вместо записи. Поэтому
+ * здесь `Box` с фоном, а не `Surface` с `shape`; скругление остаётся только у
+ * заглушки загрузки, где никакого `SurfaceView` нет.
  */
 @Composable
 private fun ClipPlayer(file: File) {
     val context = LocalContext.current
 
-    Surface(
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surface,
+    Box(
+        contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f),
+            .aspectRatio(16f / 9f)
+            .background(Color.Black),
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            val view = remember {
-                VideoView(context).apply {
-                    setVideoPath(file.absolutePath)
-                    setMediaController(
-                        MediaController(context).also { controller -> controller.setAnchorView(this) }
-                    )
-                    setOnPreparedListener { start() }
-                    setOnErrorListener { _, what, extra ->
-                        Timber.w("Клип не воспроизводится | what=%s | extra=%s", what, extra)
-                        false
-                    }
+        val view = remember {
+            VideoView(context).apply {
+                setVideoPath(file.absolutePath)
+                setMediaController(
+                    MediaController(context).also { controller -> controller.setAnchorView(this) }
+                )
+                setOnPreparedListener { start() }
+                setOnErrorListener { _, what, extra ->
+                    Timber.w("Клип не воспроизводится | what=%s | extra=%s", what, extra)
+                    false
                 }
             }
+        }
 
-            AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())
+        AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())
 
-            // Без остановки звук продолжает играть после выхода с экрана.
-            DisposableEffect(view) {
-                onDispose { view.stopPlayback() }
-            }
+        // Без остановки звук продолжает играть после выхода с экрана.
+        DisposableEffect(view) {
+            onDispose { view.stopPlayback() }
         }
     }
 
