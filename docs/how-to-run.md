@@ -174,11 +174,32 @@ docker compose exec worker python cleanup_fall_events.py --config /app/config/se
 человеческие формулировки. При сбое воспроизведения записи там будет
 `Клип не воспроизводится | what=… | extra=…`.
 
-### Поставить на телефон
+### Собрать APK и поставить на телефон
 
-Отдельная инструкция: [`install-on-phone.md`](install-on-phone.md). Коротко:
-ставится **отладочная** сборка (`app/build/outputs/apk/debug/app-debug.apk`),
-адрес сервера в приложении — LAN-адрес ноутбука, не `10.0.2.2`.
+Ставится **отладочная** сборка, и это обязательно: в release открытый HTTP
+разрешён только для `10.0.2.2`, `127.0.0.1` и `localhost`, то есть для
+эмулятора. Телефон ходит на LAN-адрес ноутбука, и release к нему не
+подключится — см. `app/src/debug/res/xml/network_security_config.xml`.
+Подпись — отладочный ключ Android Studio: для стенда достаточно, в магазин
+такой файл не выложить.
+
+```bash
+ipconfig getifaddr en0          # адрес ноутбука — его вводить в приложении
+
+cd ~/AndroidStudioProjects/terentiy_mobile
+./gradlew :app:assembleDebug    # → app/build/outputs/apk/debug/app-debug.apk, ~15 МБ
+
+~/Library/Android/sdk/platform-tools/adb install -r \
+  app/build/outputs/apk/debug/app-debug.apk
+```
+
+Или в Android Studio: **Build → Build App Bundle(s) / APK(s) → Build APK(s)**.
+
+Перед передачей переименовать: `app-debug.apk` → `terentiy-1.0.apk`. В Telegram
+отправлять **файлом**, не «сжатым», иначе APK придёт битым.
+
+Вместе с файлом передать адрес сервера, код установки и
+[`install-on-phone.md`](install-on-phone.md) — инструкцию для пользователя.
 
 ### Пересобрать приложение
 
