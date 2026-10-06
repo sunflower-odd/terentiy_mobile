@@ -174,6 +174,12 @@ docker compose exec worker python cleanup_fall_events.py --config /app/config/se
 человеческие формулировки. При сбое воспроизведения записи там будет
 `Клип не воспроизводится | what=… | extra=…`.
 
+### Поставить на телефон
+
+Отдельная инструкция: [`install-on-phone.md`](install-on-phone.md). Коротко:
+ставится **отладочная** сборка (`app/build/outputs/apk/debug/app-debug.apk`),
+адрес сервера в приложении — LAN-адрес ноутбука, не `10.0.2.2`.
+
 ### Пересобрать приложение
 
 ```bash
