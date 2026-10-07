@@ -15,8 +15,6 @@
     <string name="common_close">Закрыть</string>
     <string name="common_back">Назад</string>
     <string name="common_retry">Повторить</string>
-    <string name="common_expand">Показать</string>
-    <string name="common_collapse">Скрыть</string>
 
     <!-- Пароль и PIN -->
     <string name="password_show">Показать</string>
@@ -95,10 +93,6 @@
     <string name="event_frame_description">Кадр с камеры в момент события</string>
     <string name="event_frame_unavailable">Кадр недоступен</string>
     <string name="event_play_clip">Смотреть видео</string>
-    <string name="event_details">Подробности</string>
-    <string name="event_details_confirmation">Подтверждено правилами: %1$d из %2$d</string>
-    <string name="event_details_candidate">Отобрано правилами: %1$d из %2$d</string>
-    <string name="event_details_processing">Время обработки: %1$d мс</string>
     <string name="alert_open_event">Открыть событие</string>
 
     <!-- Видео -->

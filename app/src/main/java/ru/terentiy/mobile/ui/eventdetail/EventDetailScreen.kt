@@ -1,11 +1,9 @@
 package ru.terentiy.mobile.ui.eventdetail
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,9 +25,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -42,7 +38,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.terentiy.mobile.R
 import ru.terentiy.mobile.core.time.TimeFormat
-import ru.terentiy.mobile.domain.FallAnalysis
 import ru.terentiy.mobile.ui.common.IconArrowBack
 import ru.terentiy.mobile.ui.common.MessageBanner
 import ru.terentiy.mobile.ui.common.PrimaryButton
@@ -150,8 +145,6 @@ fun EventDetailContent(
                 onClick = { onPlayClip(event.clipMediaId) },
             )
 
-            event.analysis?.takeIf { it.hasDetails }?.let { AnalysisBlock(it) }
-
             TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.event_back_to_history))
             }
@@ -206,81 +199,4 @@ private fun FrameBlock(state: EventDetailUiState, onRetryFrame: () -> Unit) {
             }
         }
     }
-}
-
-/**
- * Блок «Подробности».
- *
- * Свёрнут по умолчанию: он для того, кто спросил «почему система так решила», а
- * не для того, кто открыл карточку в тревоге. Имена правил показываются как есть,
- * без перевода — это внутренние идентификаторы, они меняются вместе с правилами
- * на сервере, и «красивый» перевод разошёлся бы с backend на первой же правке.
- */
-@Composable
-private fun AnalysisBlock(analysis: FallAnalysis) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Surface(
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.event_details),
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { expanded = !expanded }) {
-                    Text(
-                        stringResource(
-                            if (expanded) R.string.common_collapse else R.string.common_expand
-                        )
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = expanded) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (analysis.confirmationVotes != null && analysis.confirmationVotesRequired != null) {
-                        DetailLine(
-                            stringResource(
-                                R.string.event_details_confirmation,
-                                analysis.confirmationVotes,
-                                analysis.confirmationVotesRequired,
-                            )
-                        )
-                    }
-                    if (analysis.candidateVotes != null && analysis.candidateVotesRequired != null) {
-                        DetailLine(
-                            stringResource(
-                                R.string.event_details_candidate,
-                                analysis.candidateVotes,
-                                analysis.candidateVotesRequired,
-                            )
-                        )
-                    }
-                    (analysis.candidateRules + analysis.confirmationRules)
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { rules -> DetailLine(rules.joinToString(", ")) }
-                    analysis.processingTimeMs?.let {
-                        DetailLine(stringResource(R.string.event_details_processing, it.toInt()))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DetailLine(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }

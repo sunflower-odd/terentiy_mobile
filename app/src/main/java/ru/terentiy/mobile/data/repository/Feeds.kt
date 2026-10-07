@@ -119,8 +119,12 @@ class EventFeed @Inject constructor(
     private val _state = MutableStateFlow(EventFeedState())
     val state: StateFlow<EventFeedState> = _state.asStateFlow()
 
+    /** Идентификаторы, уже записанные в журнал: одно событие — одна строка. */
+    private val logged = mutableSetOf<String>()
+
     override suspend fun load() {
         val fresh = events.events()
+        logReasons(fresh)
         // Знак ставится по самому свежему событию и только при первом чтении:
         // история, существовавшая до активации, не должна выглядеть непросмотренной.
         seenStore.initialiseWatermark(fresh.firstNotNullOfOrNull { it.capturedAt })
@@ -144,6 +148,36 @@ class EventFeed @Inject constructor(
         // Список обновляется сразу: ждать следующего опроса, чтобы точка у
         // открытого события погасла, было бы странно.
         _state.update { it.copy(seen = it.seen.copy(ids = it.seen.ids + id)) }
+    }
+
+    /**
+     * Причина события — в журнал, а не на экран.
+     *
+     * Имена правил, голосование и время обработки нужны при разборе полёта, а
+     * пользователю не говорят ничего: он смотрит кадр и запись и решает сам.
+     * Поэтому разбор приходит с сервера, живёт в модели и пишется сюда один раз
+     * на событие — повторять его на каждом опросе смысла нет.
+     */
+    private fun logReasons(fresh: List<FallEvent>) {
+        for (event in fresh) {
+            if (!logged.add(event.id)) continue
+            val analysis = event.analysis
+            if (analysis == null) {
+                Timber.i("Событие %s | разбор не прочитан", event.id)
+                continue
+            }
+            Timber.i(
+                "Событие %s | отобрано %s из %s: %s | подтверждено %s из %s: %s | обработка %s мс",
+                event.id,
+                analysis.candidateVotes, analysis.candidateVotesRequired,
+                analysis.candidateRules.joinToString(", ").ifEmpty { "—" },
+                analysis.confirmationVotes, analysis.confirmationVotesRequired,
+                analysis.confirmationRules.joinToString(", ").ifEmpty { "—" },
+                analysis.processingTimeMs?.toInt(),
+            )
+        }
+        // Чтобы список не рос бесконечно, пока приложение открыто сутками.
+        logged.retainAll(fresh.map { it.id }.toSet())
     }
 
     /** Событие из уже загруженной ленты. `null`, если лента ещё не читалась. */

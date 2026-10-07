@@ -101,22 +101,25 @@ class EventDetailContentTest {
         assertEquals("media-clip-1", played)
     }
 
+    /**
+     * Разбор приходит с сервера и остаётся в модели, но на экран не выводится:
+     * имена правил, голоса и миллисекунды — внутренняя кухня, пользователю она
+     * ничего не объясняет. Основание решения он читает одной строкой выше и
+     * проверяет записью.
+     */
     @Test
-    fun подробности_свёрнуты_по_умолчанию_и_раскрываются() {
+    fun внутренние_подробности_разбора_пользователю_не_показываются() {
         detail(EventDetailUiState(loading = false, event = event(analysis)))
 
-        compose.onNodeWithText(text(R.string.event_details)).assertIsDisplayed()
-        compose.onNodeWithText(text(R.string.event_details_confirmation, 2, 1)).assertDoesNotExist()
+        compose.onNodeWithText("Подробности").assertDoesNotExist()
+        compose.onNodeWithText("aspect_ratio=1.400, angular_speed=118deg/s").assertDoesNotExist()
+        compose.onNodeWithText("2 из 1", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("мс", substring = true).assertDoesNotExist()
 
-        compose.onNodeWithText(text(R.string.common_expand)).performClick()
-        compose.onNodeWithText(text(R.string.event_details_confirmation, 2, 1)).assertIsDisplayed()
-        compose.onNodeWithText("aspect_ratio=1.400, angular_speed=118deg/s").assertIsDisplayed()
-    }
-
-    @Test
-    fun без_разбора_блока_подробностей_нет() {
-        detail(EventDetailUiState(loading = false, event = event(analysis = null)))
-        compose.onNodeWithText(text(R.string.event_details)).assertDoesNotExist()
+        // А то, ради чего карточка открыта, на месте.
+        compose.onNodeWithText(text(R.string.event_fall)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.event_basis)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.event_play_clip)).assertIsDisplayed()
     }
 
     @Test
