@@ -21,6 +21,8 @@ import ru.terentiy.mobile.data.local.DataStoreSeenEventsStore
 import ru.terentiy.mobile.data.local.KeystoreSecureStorage
 import ru.terentiy.mobile.data.local.SecureStorage
 import ru.terentiy.mobile.data.local.SeenEventsStore
+import ru.terentiy.mobile.data.local.DataStoreZoneStore
+import ru.terentiy.mobile.data.local.ZoneStore
 import ru.terentiy.mobile.data.remote.TerentiyApi
 import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.AuthRepository
@@ -28,6 +30,8 @@ import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.data.repository.SwitchingAgentsRepository
 import ru.terentiy.mobile.data.repository.SwitchingAuthRepository
 import ru.terentiy.mobile.data.repository.SwitchingEventsRepository
+import ru.terentiy.mobile.data.repository.SwitchingZonesRepository
+import ru.terentiy.mobile.data.repository.ZonesRepository
 
 /**
  * Сборка графа зависимостей.
@@ -110,6 +114,10 @@ abstract class BindingsModule {
 
     @Binds
     @Singleton
+    abstract fun zoneStore(impl: DataStoreZoneStore): ZoneStore
+
+    @Binds
+    @Singleton
     abstract fun authRepository(impl: SwitchingAuthRepository): AuthRepository
 
     @Binds
@@ -119,4 +127,8 @@ abstract class BindingsModule {
     @Binds
     @Singleton
     abstract fun eventsRepository(impl: SwitchingEventsRepository): EventsRepository
+
+    @Binds
+    @Singleton
+    abstract fun zonesRepository(impl: SwitchingZonesRepository): ZonesRepository
 }

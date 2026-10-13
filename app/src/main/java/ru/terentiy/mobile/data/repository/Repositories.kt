@@ -2,9 +2,11 @@ package ru.terentiy.mobile.data.repository
 
 import kotlinx.coroutines.flow.Flow
 import ru.terentiy.mobile.domain.Agent
+import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.SessionState
+import ru.terentiy.mobile.domain.Zone
 
 /**
  * Контракты слоя данных.
@@ -61,4 +63,28 @@ interface EventsRepository {
 
     /** Кадр в память, клип — в файл. Тип определяется по `Content-Type`. */
     suspend fun media(mediaId: String, onProgress: (Long, Long?) -> Unit = { _, _ -> }): MediaPayload
+}
+
+/** Откуда берётся вид с камеры: сервер или показ без сервера. */
+interface CurrentFrameSource {
+
+    /** Последний проанализированный кадр и люди на нём. JPEG — через [EventsRepository.media]. */
+    suspend fun currentFrame(agentId: String): CurrentFrame
+}
+
+/**
+ * Критические зоны.
+ *
+ * Зоны хранятся только на телефоне: сервер в этой версии о них не знает и
+ * тревог по ним не поднимает. С сервера берётся только вид с камеры и рамки
+ * людей — по ним приложение само проверяет, стоит ли человек в зоне.
+ */
+interface ZonesRepository : CurrentFrameSource {
+
+    suspend fun zones(agentId: String): List<Zone>
+
+    /** Новая зона или замена зоны с тем же `id`. */
+    suspend fun save(zone: Zone)
+
+    suspend fun delete(zoneId: String)
 }

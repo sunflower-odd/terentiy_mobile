@@ -13,6 +13,8 @@ object Routes {
     const val EVENT_DETAIL = "event/{eventId}"
     const val CLIP = "clip/{mediaId}"
 
+    const val ZONES = "zones"
+
     fun eventDetail(eventId: String): String = "event/$eventId"
 
     fun clip(mediaId: String): String = "clip/$mediaId"

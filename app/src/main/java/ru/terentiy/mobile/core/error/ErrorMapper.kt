@@ -65,6 +65,9 @@ class ErrorMapper @Inject constructor(private val json: Json) {
         "unauthorized", "forbidden" -> AppError.Unauthorized
         "media_not_found" -> AppError.MediaNotFound
         "invalid_activation" -> AppError.Validation(null)
+        // Вид с камеры (current-frame). Чужая или удалённая камера для
+        // пользователя означает то же самое: кадров с неё нет.
+        "camera_unavailable", "agent_not_found" -> AppError.CameraUnavailable
         else -> null
     }
 

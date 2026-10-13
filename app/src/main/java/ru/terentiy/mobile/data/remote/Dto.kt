@@ -105,3 +105,24 @@ data class FallEventDto(
     val status: String = "",
     val analysis: JsonObject? = null,
 )
+
+/**
+ * Ответ `GET /api/v1/agents/{agent_id}/current-frame`:
+ * последний проанализированный кадр и люди на нём, рамки в пикселях кадра.
+ */
+@Serializable
+data class CurrentFrameDto(
+    @SerialName("frame_id") val frameId: String,
+    @SerialName("media_id") val mediaId: String,
+    @SerialName("captured_at") val capturedAt: String? = null,
+    val width: Int = 0,
+    val height: Int = 0,
+    val people: List<DetectedPersonDto> = emptyList(),
+)
+
+@Serializable
+data class DetectedPersonDto(
+    /** `[x1, y1, x2, y2]` в пикселях, начало в левом верхнем углу. */
+    @SerialName("bbox_xyxy") val bboxXyxy: List<Double> = emptyList(),
+    val confidence: Double? = null,
+)

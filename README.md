@@ -110,9 +110,12 @@ app/src/main/java/ru/terentiy/mobile/
 ## Контракт
 
 [`contracts/stage01-mobile-api.yaml`](contracts/stage01-mobile-api.yaml) —
-**копия** версии 1.0.0, которую backend реализует. Оригинал принадлежит
-`terentiy_ai`; в шапке файла указан коммит источника. Правки вносятся там и
-переносятся сюда целиком.
+**копия** версии 1.0.0 с одним добавленным маршрутом
+`GET /api/v1/agents/{agent_id}/current-frame` — вид с камеры и рамки людей для
+разметки критических зон; он отдан автору backend на согласование, номер версии
+пока не повышен. Оригинал
+принадлежит `terentiy_ai`; в шапке файла указан коммит источника. Правки
+вносятся там и переносятся сюда целиком.
 
 Рядом в `contracts/archive/` лежит драфт 1.1.0 — спецификация вперёд, под которую
 приложение было написано 29 сентября и которую backend не реализовал. Судьба
@@ -137,5 +140,6 @@ Unit-тесты не требуют ни сервера, ни эмулятора
 | [`docs/stage-01-mobile-plan.md`](docs/stage-01-mobile-plan.md) | Актуальный план v4.0: решения, объём, риски |
 | [`docs/migration-to-contract-1.0-implemented.md`](docs/migration-to-contract-1.0-implemented.md) | Разбор перехода на реализованный контракт |
 | [`docs/backlog-mobile.md`](docs/backlog-mobile.md) | Отложенное и просьбы к backend |
+| [`docs/research-hypotheses.md`](docs/research-hypotheses.md) | Исследовательские гипотезы и протокол измерений |
 | [`docs/adr/`](docs/adr) | Принятые архитектурные решения, включая отменённые |
 | [`docs/archive/`](docs/archive) | Планы предыдущих версий |

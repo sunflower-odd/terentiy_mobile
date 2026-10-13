@@ -28,6 +28,7 @@ import ru.terentiy.mobile.ui.events.EventsScreen
 import ru.terentiy.mobile.ui.home.HomeScreen
 import ru.terentiy.mobile.ui.pin.PinScreen
 import ru.terentiy.mobile.ui.profile.ProfileScreen
+import ru.terentiy.mobile.ui.zones.ZonesScreen
 
 /**
  * Навигация приложения.
@@ -123,6 +124,7 @@ fun TerentiyNavHost(viewModel: RootViewModel = hiltViewModel()) {
                 ProfileScreen(
                     contentPadding = padding,
                     onLoggedOut = { navController.resetTo(Routes.PIN) },
+                    onOpenZones = { navController.navigate(Routes.ZONES) },
                 )
             }
         }
@@ -136,6 +138,10 @@ fun TerentiyNavHost(viewModel: RootViewModel = hiltViewModel()) {
 
         composable(Routes.CLIP) {
             ClipScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.ZONES) {
+            ZonesScreen(onBack = { navController.popBackStack() })
         }
     }
 }

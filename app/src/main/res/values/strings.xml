@@ -132,4 +132,38 @@
     <string name="error_validation">Сервер не принял данные. Проверьте введённое.</string>
     <string name="error_server">Сервер ответил ошибкой. Попробуйте позже.</string>
     <string name="error_unknown">Что-то пошло не так. Попробуйте ещё раз.</string>
+
+    <!-- Критические зоны: разметка и проверка «человек в зоне» по виду с камеры. -->
+    <string name="error_camera_unavailable">Камера сейчас не присылает кадров. Попробуйте позже.</string>
+    <string name="error_zone_not_found">Зона не найдена — возможно, её уже удалили.</string>
+    <string name="profile_zones">Критические зоны</string>
+    <string name="zone_clear_points">Начать заново</string>
+    <string name="zone_delete">Удалить зону</string>
+    <string name="zone_delete_confirm">Зона будет удалена с этого телефона.</string>
+    <string name="zone_draw_hint">Отмечайте пол: система смотрит, где человек касается пола — стоит или лежит. Проще всего встать в нужное место, получить вид и обвести ноги с запасом в шаг. Точку можно перетащить.</string>
+    <string name="zone_edit_title">Зона</string>
+    <string name="zone_frame_time">Кадр от %1$s</string>
+    <string name="zone_get_view">Получить вид</string>
+    <string name="zone_name">Название</string>
+    <string name="zone_new_title">Новая зона</string>
+    <string name="zone_no_frame">Получите вид с камеры, чтобы отметить зону.</string>
+    <string name="zone_presence_inside">Человек в зоне</string>
+    <string name="zone_presence_nobody">В кадре никого нет</string>
+    <string name="zone_presence_outside">Человек есть в кадре, но не в зоне</string>
+    <string name="zone_problem_few_points">Отметьте хотя бы три угла зоны</string>
+    <string name="zone_problem_intersecting">Стороны зоны не должны пересекаться</string>
+    <string name="zone_problem_many_points">Не больше 12 углов</string>
+    <string name="zone_problem_name">Введите название зоны</string>
+    <string name="zone_problem_small">Зона слишком маленькая</string>
+    <string name="zone_refresh_view">Обновить вид</string>
+    <string name="zone_row_hint">Получите вид, чтобы проверить, есть ли в зоне человек</string>
+    <string name="zone_save">Сохранить зону</string>
+    <string name="zone_undo_point">Отменить точку</string>
+    <string name="zones_add">Добавить зону</string>
+    <string name="zone_cancel">Отмена</string>
+    <string name="zones_empty">Отметьте места, за которыми нужно присматривать: окно, плиту, входную дверь. Получите вид с камеры — и сразу будет видно, стоит ли человек в зоне.</string>
+    <string name="zones_entry_hint">Места, за которыми нужно присматривать: окно, плита, входная дверь</string>
+    <string name="zones_limit">Можно добавить не больше 10 зон</string>
+    <string name="zones_no_agent">Камера не подключена — зоны размечать не на чем.</string>
+    <string name="zones_title">Критические зоны</string>
 </resources>

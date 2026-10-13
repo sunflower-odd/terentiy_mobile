@@ -1,5 +1,6 @@
 package ru.terentiy.mobile.ui.profile
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -31,6 +33,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.terentiy.mobile.R
 import ru.terentiy.mobile.ui.common.IconBadge
+import ru.terentiy.mobile.ui.common.IconChevronRight
 import ru.terentiy.mobile.ui.common.IconPerson
 import ru.terentiy.mobile.ui.common.SecondaryButton
 
@@ -38,6 +41,7 @@ import ru.terentiy.mobile.ui.common.SecondaryButton
 fun ProfileScreen(
     contentPadding: PaddingValues,
     onLoggedOut: () -> Unit,
+    onOpenZones: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -50,6 +54,7 @@ fun ProfileScreen(
         onDemoModeChange = viewModel::setDemoMode,
         onClearCache = viewModel::clearMediaCache,
         onLogout = viewModel::logout,
+        onOpenZones = onOpenZones,
     )
 }
 
@@ -60,6 +65,7 @@ fun ProfileContent(
     onDemoModeChange: (Boolean) -> Unit,
     onClearCache: () -> Unit,
     onLogout: () -> Unit,
+    onOpenZones: () -> Unit = {},
 ) {
     var confirmLogout by remember { mutableStateOf(false) }
 
@@ -130,6 +136,36 @@ fun ProfileContent(
             title = stringResource(R.string.profile_server),
             value = state.serverUrl,
         )
+
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenZones),
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.profile_zones),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.zones_entry_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(
+                    imageVector = IconChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
             Row(

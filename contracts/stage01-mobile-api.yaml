@@ -1,15 +1,14 @@
 # ВНИМАНИЕ: синхронизированная копия. Оригинал принадлежит репозиторию terentiy_ai.
 # Источник: terentiy_ai/contracts/openapi/mobile-server.openapi.yaml
-# Коммит источника: 57f8e83e2a16962d56686d408a5152652590243e (2026-09-30)
-# Синхронизировано: 2026-09-30
+# Коммит источника: 57f8e83e2a16962d56686d408a5152652590243e (2026-09-30) плюс
+# маршрут GET /api/v1/agents/{agent_id}/current-frame (номер версии не менялся) — правка
+# отдана автору backend как PR, в main terentiy_ai её пока нет. После слияния
+# вписать сюда хеш коммита.
+# Синхронизировано: 2026-10-13
 # Правки вносятся в terentiy_ai и переносятся сюда целиком, а не наоборот.
 #
-# Эту версию backend РЕАЛИЗУЕТ: маршруты сервера в terentiy_ai/server/src/terentiy_server
-# совпадают с описанными здесь поимённо.
-#
-# Драфт 1.1.0, под который приложение писалось 29 сентября, лежит рядом:
-# contracts/archive/stage01-mobile-api-1.1.0-draft.yaml. Он не реализован, и автор
-# backend не подтвердил, остаётся ли он в планах.
+# Драфт 1.1.0 от 29 сентября (зоны с условиями на сервере) — в
+# contracts/archive/stage01-mobile-api-1.1.0-draft.yaml. Он не реализован.
 
 openapi: 3.1.0
 info:
@@ -19,7 +18,8 @@ info:
     HTTP contract for a Terentiy mobile application and the server.
 
     It deliberately contains only mobile-facing endpoints: device activation and
-    login, agent health, fall events, and evidence downloads. Agent-to-server
+    login, agent health, fall events, evidence downloads and the current camera
+    view used to mark critical zones. Agent-to-server
     endpoints are documented separately in `terentiy-api.openapi.yaml`.
 servers:
   - url: http://127.0.0.1:8080
@@ -142,6 +142,44 @@ paths:
         '401':
           $ref: '#/components/responses/ServiceError'
 
+  /api/v1/agents/{agent_id}/current-frame:
+    get:
+      tags: [Agents]
+      summary: Latest analyzed camera frame with detected people
+      description: |
+        Returns the newest frame of the agent that the ML worker has already
+        analyzed, together with person boxes from the same detector that is
+        used for falls. The mobile application uses it to draw a critical zone
+        and to check whether a person stands inside it; zones themselves are
+        not stored on the server in this version.
+
+        The frame is not necessarily the newest received one: while the worker
+        lags behind, the last analyzed frame is returned so that the boxes and
+        the image always belong together. `captured_at` tells how old it is.
+        Download the JPEG with `/api/v1/media/{media_id}`.
+      operationId: getCurrentFrame
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Latest analyzed frame and people on it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentFrame'
+        '401':
+          $ref: '#/components/responses/ServiceError'
+        '404':
+          description: |
+            `agent_not_found` — the agent does not exist or belongs to another
+            household; `camera_unavailable` — no analyzed frame yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/v1/events:
     get:
       tags: [Events]
@@ -209,6 +247,14 @@ components:
       in: query
       required: false
       description: Return events for one agent only.
+      schema:
+        type: string
+        format: uuid
+    AgentId:
+      name: agent_id
+      in: path
+      required: true
+      description: Agent identifier from `/api/v1/agents`.
       schema:
         type: string
         format: uuid
@@ -410,6 +456,48 @@ components:
         created_at:
           type: string
           format: date-time
+
+    CurrentFrame:
+      type: object
+      required: [frame_id, media_id, captured_at, width, height, people]
+      properties:
+        frame_id:
+          type: string
+          format: uuid
+        media_id:
+          type: string
+          format: uuid
+          description: JPEG of the frame, downloadable via `/api/v1/media/{media_id}`.
+        captured_at:
+          type: string
+          format: date-time
+          description: Capture time of the frame on the agent, UTC.
+        width:
+          type: integer
+          description: Frame width in pixels.
+        height:
+          type: integer
+          description: Frame height in pixels.
+        people:
+          type: array
+          description: People found on the frame; empty when nobody is visible.
+          items:
+            $ref: '#/components/schemas/DetectedPerson'
+
+    DetectedPerson:
+      type: object
+      required: [bbox_xyxy]
+      properties:
+        bbox_xyxy:
+          type: array
+          description: Box `[x1, y1, x2, y2]` in frame pixels, origin at the top-left corner.
+          minItems: 4
+          maxItems: 4
+          items:
+            type: number
+        confidence:
+          type: [number, 'null']
+          description: Detector confidence from 0 to 1.
 
     Error:
       type: object

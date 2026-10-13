@@ -19,8 +19,10 @@ import ru.terentiy.mobile.data.remote.TerentiyApi
 import ru.terentiy.mobile.data.remote.toDomain
 import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.AuthRepository
+import ru.terentiy.mobile.data.repository.CurrentFrameSource
 import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.domain.Agent
+import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.SessionState
@@ -141,4 +143,20 @@ class NetworkEventsRepository @Inject constructor(
 
     override suspend fun media(mediaId: String, onProgress: (Long, Long?) -> Unit): MediaPayload =
         authorized { downloader.download(mediaId, onProgress) }
+}
+
+@Singleton
+class NetworkCurrentFrameSource @Inject constructor(
+    private val api: TerentiyApi,
+    private val authorized: AuthorizedCall,
+) : CurrentFrameSource {
+
+    override suspend fun currentFrame(agentId: String): CurrentFrame = try {
+        authorized { api.currentFrame(agentId).toDomain() }
+    } catch (error: AppError.MediaNotFound) {
+        // Голый 404 без кода — сервер ещё без маршрута current-frame.
+        // Для пользователя это то же, что «кадров нет».
+        Timber.w("Сервер не отдаёт вид с камеры: маршрута current-frame нет")
+        throw AppError.CameraUnavailable
+    }
 }

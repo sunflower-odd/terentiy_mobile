@@ -57,4 +57,11 @@ interface TerentiyApi {
     @Streaming
     @GET("api/v1/media/{mediaId}")
     suspend fun media(@Path("mediaId") mediaId: String): Response<ResponseBody>
+
+    /**
+     * Последний проанализированный кадр камеры и рамки людей на нём —
+     * для разметки критической зоны. Сам JPEG берётся через [media].
+     */
+    @GET("api/v1/agents/{agentId}/current-frame")
+    suspend fun currentFrame(@Path("agentId") agentId: String): CurrentFrameDto
 }

@@ -18,8 +18,11 @@ import ru.terentiy.mobile.data.local.AppSettings
 import ru.terentiy.mobile.data.local.SessionHolder
 import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.AuthRepository
+import ru.terentiy.mobile.data.repository.CurrentFrameSource
 import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.domain.Agent
+import ru.terentiy.mobile.domain.CurrentFrame
+import ru.terentiy.mobile.domain.PersonBox
 import ru.terentiy.mobile.domain.EventStatus
 import ru.terentiy.mobile.domain.FallAnalysis
 import ru.terentiy.mobile.domain.FallEvent
@@ -351,5 +354,32 @@ class DemoEventsRepository @Inject constructor(
             onProgress(total * step / 4, total)
         }
         return file
+    }
+}
+
+/**
+ * Вид с камеры в показе без сервера — тот же демо-кадр, что у события
+ * падения, с рамкой лежащего человека, снятой с кадра вручную. Так разметку и
+ * проверку «в зоне / не в зоне» можно показать без камеры.
+ */
+@Singleton
+class DemoCurrentFrameSource @Inject constructor() : CurrentFrameSource {
+
+    override suspend fun currentFrame(agentId: String): CurrentFrame {
+        delay(DemoScenario.NETWORK_FEEL_MS)
+        return CurrentFrame(
+            frameId = "demo-frame-for-zones",
+            mediaId = DemoScenario.DEMO_FRAME_MEDIA_ID,
+            capturedAt = Instant.now(),
+            width = FRAME_WIDTH,
+            height = FRAME_HEIGHT,
+            // Рамка в пикселях демо-кадра 640×480: человек лежит на полу у стола.
+            people = listOf(PersonBox(120f / FRAME_WIDTH, 315f / FRAME_HEIGHT, 450f / FRAME_WIDTH, 478f / FRAME_HEIGHT)),
+        )
+    }
+
+    private companion object {
+        const val FRAME_WIDTH = 640
+        const val FRAME_HEIGHT = 480
     }
 }

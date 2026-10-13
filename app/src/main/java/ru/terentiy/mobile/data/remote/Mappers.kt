@@ -12,6 +12,8 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import ru.terentiy.mobile.domain.Agent
+import ru.terentiy.mobile.domain.CurrentFrame
+import ru.terentiy.mobile.domain.PersonBox
 import ru.terentiy.mobile.domain.EventStatus
 import ru.terentiy.mobile.domain.FallAnalysis
 import ru.terentiy.mobile.domain.FallEvent
@@ -74,6 +76,40 @@ fun FallEventDto.toDomain(): FallEvent? {
         createdAt = createdAt.toInstantOrNull(),
         status = EventStatus.parse(status),
         analysis = analysis?.toFallAnalysis(),
+    )
+}
+
+/**
+ * Рамки переводятся из пикселей в доли кадра — в тех же единицах, что вершины
+ * зоны. Без размеров кадра перевести не во что, и людей тогда нет: лучше
+ * «никого не видно», чем рамка не на своём месте.
+ */
+fun CurrentFrameDto.toDomain(): CurrentFrame {
+    val boxes = if (width <= 0 || height <= 0) {
+        if (people.isNotEmpty()) Timber.w("Кадр без размеров, рамки отброшены | frame=%s", frameId)
+        emptyList()
+    } else {
+        people.mapNotNull { person -> person.toBox(width.toFloat(), height.toFloat()) }
+    }
+    return CurrentFrame(
+        frameId = frameId,
+        mediaId = mediaId,
+        capturedAt = capturedAt.toInstantOrNull(),
+        width = width,
+        height = height,
+        people = boxes,
+    )
+}
+
+private fun DetectedPersonDto.toBox(width: Float, height: Float): PersonBox? {
+    if (bboxXyxy.size != 4) return null
+    val (x1, y1, x2, y2) = bboxXyxy.map { it.toFloat() }
+    if (x2 <= x1 || y2 <= y1) return null
+    return PersonBox(
+        left = (x1 / width).coerceIn(0f, 1f),
+        top = (y1 / height).coerceIn(0f, 1f),
+        right = (x2 / width).coerceIn(0f, 1f),
+        bottom = (y2 / height).coerceIn(0f, 1f),
     )
 }
 

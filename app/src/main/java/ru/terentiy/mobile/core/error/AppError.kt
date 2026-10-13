@@ -51,6 +51,12 @@ sealed class AppError : Exception() {
     /** Событие не найдено в загруженной ленте. Локальная ошибка, не серверная. */
     data object EventNotFound : AppError()
 
+    /** Камера ещё не присылала кадров, или сервер не умеет отдавать вид. */
+    data object CameraUnavailable : AppError()
+
+    /** Зона не найдена на этом телефоне — возможно, её уже удалили. */
+    data object ZoneNotFound : AppError()
+
     /** Сеть недоступна, таймаут, неверный адрес сервера. */
     data object Network : AppError()
 

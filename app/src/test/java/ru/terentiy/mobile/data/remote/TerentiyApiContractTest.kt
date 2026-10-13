@@ -21,8 +21,8 @@ import ru.terentiy.mobile.core.network.apiCall
 import ru.terentiy.mobile.domain.Tri
 
 /**
- * Проверка пяти мобильных маршрутов на телах той формы, которую описывает
- * `contracts/stage01-mobile-api.yaml` версии 1.0.0.
+ * Проверка мобильных маршрутов на телах той формы, которую описывает
+ * `contracts/stage01-mobile-api.yaml`.
  *
  * Тела взяты из контракта и из тестов сервера, а не придуманы: сверять клиент с
  * живым сервером на каждой правке дорого, и эти тесты — основная защита от
@@ -305,5 +305,38 @@ class TerentiyApiContractTest {
         val error = errorMapper.fromResponse(response.code(), response.errorBody()?.string())
 
         assertEquals(AppError.MediaNotFound, error)
+    }
+
+    @Test
+    fun `вид с камеры приходит с рамками людей`() = runTest {
+        respond(
+            200,
+            """
+            {
+              "frame_id": "frame-1",
+              "media_id": "media-frame-1",
+              "captured_at": "2026-10-13T10:00:00Z",
+              "width": 640,
+              "height": 480,
+              "people": [{"bbox_xyxy": [100.5, 50.0, 220.0, 400.0], "confidence": 0.91}]
+            }
+            """.trimIndent(),
+        )
+
+        val frame = api.currentFrame("agent-1").toDomain()
+
+        assertEquals("/api/v1/agents/agent-1/current-frame", server.takeRequest().path)
+        assertEquals("media-frame-1", frame.mediaId)
+        assertEquals(1, frame.people.size)
+        assertEquals(400f / 480f, frame.people.single().bottom, 1e-6f)
+    }
+
+    @Test
+    fun `камера без кадров отвечает кодом camera_unavailable`() = runTest {
+        respond(404, """{"code":"camera_unavailable","message":"No analyzed frame from this camera yet"}""")
+
+        val error = runCatching { apiCall(errorMapper) { api.currentFrame("agent-1") } }.exceptionOrNull()
+
+        assertEquals(AppError.CameraUnavailable, error)
     }
 }

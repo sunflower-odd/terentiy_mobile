@@ -19,6 +19,8 @@ fun AppError.messageRes(): Int = when (this) {
     AppError.MediaNotFound -> R.string.error_media_not_found
     is AppError.MediaUnsupported -> R.string.error_media_unsupported
     AppError.EventNotFound -> R.string.error_event_not_found
+    AppError.CameraUnavailable -> R.string.error_camera_unavailable
+    AppError.ZoneNotFound -> R.string.error_zone_not_found
     AppError.Network -> R.string.error_network
     is AppError.Validation -> R.string.error_validation
     is AppError.Server -> R.string.error_server
