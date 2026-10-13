@@ -40,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -55,12 +54,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ru.terentiy.mobile.BuildConfig
 import ru.terentiy.mobile.R
 import ru.terentiy.mobile.core.time.TimeFormat
 import ru.terentiy.mobile.domain.Zone
 import ru.terentiy.mobile.domain.ZonePoint
-import ru.terentiy.mobile.domain.ZonePresence
+import ru.terentiy.mobile.domain.ZoneState
 import ru.terentiy.mobile.ui.common.IconArrowBack
 import ru.terentiy.mobile.ui.common.MessageBanner
 import ru.terentiy.mobile.ui.common.PrimaryButton
@@ -160,8 +158,7 @@ fun ZonesContent(
 }
 
 /**
- * Вид с камеры: все зоны контуром, редактируемая — с заливкой и вершинами.
- * В отладочной сборке поверх — рамки людей с залитой опорой. Касания добавляют и двигают вершины только
+ * Вид с камеры: все зоны контуром, редактируемая — с заливкой и вершинами. Касания добавляют и двигают вершины только
  * в режиме рисования.
  *
  * Контейнер повторяет пропорции кадра, поэтому изображение заполняет его без
@@ -211,8 +208,7 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
     val fill = MaterialTheme.colorScheme.primary
     val other = MaterialTheme.colorScheme.tertiary
     val vertex = MaterialTheme.colorScheme.onPrimary
-    val personColor = MaterialTheme.colorScheme.error
-    val points by rememberUpdatedState(state.draft?.points.orEmpty())
+    val points by rememberUpdatedState(state.edited?.points.orEmpty())
     val radius = with(LocalDensity.current) { 24.dp.toPx() }
 
     val drawing = if (!state.editing) Modifier else Modifier
@@ -252,31 +248,13 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
         )
         Canvas(modifier = Modifier.fillMaxSize().then(drawing)) {
             state.shownZones.forEach { zone -> drawZone(zone.polygon, other, filled = false) }
-            state.draft?.let { draft ->
-                drawZone(draft.points, fill, filled = true)
-                draft.points.forEach { p ->
+            state.edited?.let { edited ->
+                drawZone(edited.points, fill, filled = true)
+                edited.points.forEach { p ->
                     val center = Offset(p.x * size.width, p.y * size.height)
                     drawCircle(color = fill, radius = 9.dp.toPx(), center = center)
                     drawCircle(color = vertex, radius = 4.dp.toPx(), center = center)
                 }
-            }
-            // Только в отладочной сборке: люди — рамкой детектора, опора
-            // (нижняя четверть рамки) — заливкой; по опоре и решается, в зоне
-            // человек или нет. Пользователю это не показывается — технические
-            // подробности на экран не выводим.
-            if (BuildConfig.DEBUG) state.people.forEach { person ->
-                drawRect(
-                    color = personColor,
-                    topLeft = Offset(person.left * size.width, person.top * size.height),
-                    size = Size((person.right - person.left) * size.width, (person.bottom - person.top) * size.height),
-                    style = Stroke(width = 2.dp.toPx()),
-                )
-                val support = person.support
-                drawRect(
-                    color = personColor.copy(alpha = 0.35f),
-                    topLeft = Offset(support.left * size.width, support.top * size.height),
-                    size = Size((support.right - support.left) * size.width, (support.bottom - support.top) * size.height),
-                )
             }
         }
     }
@@ -316,7 +294,7 @@ private fun ZoneList(state: ZonesUiState, actions: ZonesActions) {
         )
     }
     state.zones.forEach { zone ->
-        ZoneRow(zone = zone, presence = state.presenceOf(zone.polygon), onClick = { actions.edit(zone.id) })
+        ZoneRow(zone = zone, onClick = { actions.edit(zone.id) })
     }
     PrimaryButton(text = stringResource(R.string.zones_add), onClick = actions.startNew, enabled = state.canAdd)
     if (!state.canAdd) {
@@ -329,28 +307,27 @@ private fun ZoneList(state: ZonesUiState, actions: ZonesActions) {
 }
 
 @Composable
-private fun ZoneRow(zone: Zone, presence: ZonePresence?, onClick: () -> Unit) {
-    val inside = presence == ZonePresence.INSIDE
+private fun ZoneRow(zone: Zone, onClick: () -> Unit) {
     Surface(
         shape = MaterialTheme.shapes.large,
-        color = if (inside) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(text = zone.name, style = MaterialTheme.typography.titleMedium)
             Text(
-                text = stringResource(presence.textRes()),
+                text = stringResource(zone.state.textRes()),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (inside) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
 
-/** Рисование зоны: название, итог проверки, сохранить, удалить. */
+/** Рисование зоны: название, сохранить, удалить. */
 @Composable
 private fun EditPanel(state: ZonesUiState, actions: ZonesActions) {
-    val draft = state.draft ?: return
+    val edited = state.edited ?: return
     var confirmDelete by remember { mutableStateOf(false) }
 
     if (confirmDelete) {
@@ -371,26 +348,11 @@ private fun EditPanel(state: ZonesUiState, actions: ZonesActions) {
     }
 
     Text(
-        text = stringResource(if (draft.id == null) R.string.zone_new_title else R.string.zone_edit_title),
+        text = stringResource(if (edited.id == null) R.string.zone_new_title else R.string.zone_edit_title),
         style = MaterialTheme.typography.titleMedium,
     )
-    state.presenceOf(draft.points)?.let { presence ->
-        val inside = presence == ZonePresence.INSIDE
-        Surface(
-            shape = MaterialTheme.shapes.large,
-            color = if (inside) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                text = stringResource(presence.textRes()),
-                style = MaterialTheme.typography.titleMedium,
-                color = if (inside) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(16.dp),
-            )
-        }
-    }
     OutlinedTextField(
-        value = draft.name,
+        value = edited.name,
         onValueChange = actions.setName,
         label = { Text(stringResource(R.string.zone_name)) },
         singleLine = true,
@@ -399,20 +361,20 @@ private fun EditPanel(state: ZonesUiState, actions: ZonesActions) {
         modifier = Modifier.fillMaxWidth(),
     )
     state.problemRes?.let { MessageBanner(text = stringResource(it)) }
-    PrimaryButton(text = stringResource(R.string.zone_save), onClick = actions.save)
-    if (draft.id != null) {
-        SecondaryButton(text = stringResource(R.string.zone_delete), onClick = { confirmDelete = true })
+    PrimaryButton(text = stringResource(R.string.zone_save), onClick = actions.save, loading = state.saving, enabled = !state.saving)
+    if (edited.id != null) {
+        SecondaryButton(text = stringResource(R.string.zone_delete), onClick = { confirmDelete = true }, enabled = !state.saving)
     }
     TextButton(onClick = actions.cancelEdit, modifier = Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.zone_cancel))
     }
 }
 
-private fun ZonePresence?.textRes(): Int = when (this) {
-    ZonePresence.INSIDE -> R.string.zone_presence_inside
-    ZonePresence.OUTSIDE -> R.string.zone_presence_outside
-    ZonePresence.NOBODY -> R.string.zone_presence_nobody
-    null -> R.string.zone_row_hint
+private fun ZoneState.textRes(): Int = when (this) {
+    ZoneState.DRAFT -> R.string.zone_state_draft
+    ZoneState.BINDING -> R.string.zone_state_binding
+    ZoneState.BOUND -> R.string.zone_state_bound
+    ZoneState.NEEDS_REBINDING -> R.string.zone_state_needs_rebinding
 }
 
 private fun DrawScope.drawZone(points: List<ZonePoint>, color: Color, filled: Boolean) {

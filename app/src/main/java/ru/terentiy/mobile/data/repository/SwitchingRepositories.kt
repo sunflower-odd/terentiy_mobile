@@ -11,13 +11,11 @@ import ru.terentiy.mobile.data.repository.demo.DemoEventsRepository
 import ru.terentiy.mobile.data.repository.network.NetworkAgentsRepository
 import ru.terentiy.mobile.data.repository.network.NetworkAuthRepository
 import ru.terentiy.mobile.data.repository.network.NetworkEventsRepository
-import ru.terentiy.mobile.data.repository.network.NetworkCurrentFrameSource
-import ru.terentiy.mobile.data.repository.demo.DemoCurrentFrameSource
-import ru.terentiy.mobile.data.local.ZoneStore
+import ru.terentiy.mobile.data.repository.network.NetworkZonesRepository
+import ru.terentiy.mobile.data.repository.demo.DemoZonesRepository
+import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.Zone
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
@@ -97,34 +95,27 @@ class SwitchingEventsRepository @Inject constructor(
         if (settings.currentDataSourceMode() == DataSourceMode.DEMO) demo else network
 }
 
-/**
- * Вид с камеры — по режиму, как остальные данные; зоны — всегда из памяти
- * телефона. В показе без сервера у агента свой идентификатор, поэтому зоны
- * двух режимов не смешиваются.
- */
 @Singleton
 class SwitchingZonesRepository @Inject constructor(
     private val settings: AppSettings,
-    private val network: NetworkCurrentFrameSource,
-    private val demo: DemoCurrentFrameSource,
-    private val store: ZoneStore,
+    private val network: NetworkZonesRepository,
+    private val demo: DemoZonesRepository,
 ) : ZonesRepository {
 
-    private val mutex = Mutex()
+    override suspend fun currentFrame(agentId: String, cameraId: String): CurrentFrame =
+        current().currentFrame(agentId, cameraId)
 
-    override suspend fun currentFrame(agentId: String): CurrentFrame =
-        if (settings.currentDataSourceMode() == DataSourceMode.DEMO) demo.currentFrame(agentId)
-        else network.currentFrame(agentId)
+    override suspend fun zones(agentId: String, cameraId: String): List<Zone> = current().zones(agentId, cameraId)
 
-    override suspend fun zones(agentId: String): List<Zone> = store.all().filter { it.agentId == agentId }
+    override suspend fun create(agentId: String, cameraId: String, draft: ZoneDraft): Zone =
+        current().create(agentId, cameraId, draft)
 
-    override suspend fun save(zone: Zone) = mutex.withLock {
-        val all = store.all()
-        val index = all.indexOfFirst { it.id == zone.id }
-        store.replaceAll(if (index < 0) all + zone else all.toMutableList().also { it[index] = zone })
-    }
+    override suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone =
+        current().update(agentId, cameraId, zoneId, version, draft)
 
-    override suspend fun delete(zoneId: String) = mutex.withLock {
-        store.replaceAll(store.all().filterNot { it.id == zoneId })
-    }
+    override suspend fun delete(agentId: String, cameraId: String, zoneId: String) =
+        current().delete(agentId, cameraId, zoneId)
+
+    private suspend fun current(): ZonesRepository =
+        if (settings.currentDataSourceMode() == DataSourceMode.DEMO) demo else network
 }

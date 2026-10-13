@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
-import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,17 +18,15 @@ import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.data.repository.ZonesRepository
 import ru.terentiy.mobile.domain.MediaPayload
-import ru.terentiy.mobile.domain.PersonBox
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.ZoneGeometry
 import ru.terentiy.mobile.domain.ZonePoint
-import ru.terentiy.mobile.domain.ZonePresence
 
-/**
- * Зона, которую сейчас рисуют. [id] — `null` у новой зоны.
- */
-data class ZoneDraft(
+/** Зона, которую сейчас рисуют. [id] и [version] — `null` у новой зоны. */
+data class EditedZone(
     val id: String? = null,
+    val version: Int? = null,
     val name: String = "",
     val points: List<ZonePoint> = emptyList(),
 )
@@ -39,25 +36,21 @@ data class ZonesUiState(
     val noAgent: Boolean = false,
     val zones: List<Zone> = emptyList(),
     /** Редактируемая зона; `null` — экран в режиме просмотра. */
-    val draft: ZoneDraft? = null,
+    val edited: EditedZone? = null,
+    /** Показанный кадр и его идентификатор: на нём рисуют, он уходит как `reference_frame_id`. */
     val frame: ByteArray? = null,
-    /** Время кадра на камере: кадр может быть не самым свежим. */
+    val frameId: String? = null,
     val frameCapturedAt: Instant? = null,
-    /** Люди на кадре — рамки детектора сервера. */
-    val people: List<PersonBox> = emptyList(),
     val frameLoading: Boolean = false,
+    val saving: Boolean = false,
     @param:StringRes val errorRes: Int? = null,
     @param:StringRes val problemRes: Int? = null,
 ) {
-    val editing: Boolean get() = draft != null
+    val editing: Boolean get() = edited != null
     val canAdd: Boolean get() = !loading && !noAgent && !editing && zones.size < ZoneGeometry.MAX_ZONES
 
     /** Зоны, которые рисуются контуром: все, кроме редактируемой. */
-    val shownZones: List<Zone> get() = zones.filter { it.id != draft?.id }
-
-    /** Итог проверки зоны по полученному кадру; `null` — кадра ещё нет. */
-    fun presenceOf(polygon: List<ZonePoint>): ZonePresence? =
-        if (frame == null || polygon.size < ZoneGeometry.MIN_VERTICES) null else ZonePresence.of(polygon, people)
+    val shownZones: List<Zone> get() = zones.filter { it.id != edited?.id }
 
     // Массив байтов сравнивается по ссылке, из-за чего Compose считал бы
     // состояние изменившимся зря.
@@ -65,28 +58,29 @@ data class ZonesUiState(
         if (this === other) return true
         if (other !is ZonesUiState) return false
         return loading == other.loading && noAgent == other.noAgent && zones == other.zones &&
-            draft == other.draft && (frame?.contentEquals(other.frame) ?: (other.frame == null)) &&
-            frameCapturedAt == other.frameCapturedAt && people == other.people &&
-            frameLoading == other.frameLoading && errorRes == other.errorRes && problemRes == other.problemRes
+            edited == other.edited && (frame?.contentEquals(other.frame) ?: (other.frame == null)) &&
+            frameId == other.frameId && frameCapturedAt == other.frameCapturedAt &&
+            frameLoading == other.frameLoading && saving == other.saving &&
+            errorRes == other.errorRes && problemRes == other.problemRes
     }
 
     override fun hashCode(): Int {
         var result = zones.hashCode()
-        result = 31 * result + (draft?.hashCode() ?: 0)
-        result = 31 * result + people.hashCode()
+        result = 31 * result + (edited?.hashCode() ?: 0)
+        result = 31 * result + (frameId?.hashCode() ?: 0)
         result = 31 * result + (frame?.contentHashCode() ?: 0)
-        result = 31 * result + loading.hashCode() + frameLoading.hashCode()
+        result = 31 * result + loading.hashCode() + frameLoading.hashCode() + saving.hashCode()
         return result
     }
 }
 
 /**
- * Критические зоны — один экран.
+ * Критические зоны — один экран (mobile-server 2.0.0-draft).
  *
- * Сверху вид с камеры: его берут кнопкой «Получить вид», не автообновлением.
- * На виде — все зоны и рамки людей, под ним — список зон с итогом «человек в
- * зоне или нет». Нажатие на зону или «Добавить зону» включает рисование на том
- * же виде. Зоны хранятся на телефоне.
+ * Сверху вид с камеры — по кнопке «Получить вид», не автообновлением. На виде
+ * все зоны камеры, под ним — их список. Нажатие на зону или «Добавить зону»
+ * включает рисование. Зоны хранятся на сервере; проверку зоны (человек встаёт в
+ * неё, сервер подтверждает) приложение пока не запускает.
  *
  * Камера одна на дом, поэтому берётся первый агент — как на главном экране.
  */
@@ -101,6 +95,7 @@ class ZonesViewModel @Inject constructor(
     val state: StateFlow<ZonesUiState> = _state.asStateFlow()
 
     private var agentId: String? = null
+    private var cameraId: String? = null
 
     init {
         load()
@@ -109,13 +104,14 @@ class ZonesViewModel @Inject constructor(
     private fun load() {
         viewModelScope.launch {
             try {
-                val agent = agents.agents().firstOrNull()?.id
+                val agent = agents.agents().firstOrNull()
                 if (agent == null) {
                     _state.update { it.copy(loading = false, noAgent = true) }
                     return@launch
                 }
-                agentId = agent
-                val zones = zonesRepository.zones(agent)
+                agentId = agent.id
+                cameraId = agent.cameraId
+                val zones = zonesRepository.zones(agent.id, agent.cameraId)
                 _state.update { it.copy(loading = false, noAgent = false, zones = zones) }
             } catch (error: AppError) {
                 _state.update { it.copy(loading = false, errorRes = error.messageRes()) }
@@ -125,15 +121,15 @@ class ZonesViewModel @Inject constructor(
 
     fun fetchFrame() {
         val agent = agentId ?: return
+        val camera = cameraId ?: return
         if (_state.value.frameLoading) return
         _state.update { it.copy(frameLoading = true, errorRes = null) }
         viewModelScope.launch {
             try {
-                val frame = zonesRepository.currentFrame(agent)
-                val bytes = (events.media(frame.mediaId) as? MediaPayload.Image)?.bytes
-                    ?: throw AppError.MediaUnsupported(null)
+                val frame = zonesRepository.currentFrame(agent, camera)
+                val bytes = image(frame.mediaId)
                 _state.update {
-                    it.copy(frameLoading = false, frame = bytes, frameCapturedAt = frame.capturedAt, people = frame.people)
+                    it.copy(frameLoading = false, frame = bytes, frameId = frame.frameId, frameCapturedAt = frame.capturedAt)
                 }
             } catch (error: AppError) {
                 _state.update { it.copy(frameLoading = false, errorRes = error.messageRes()) }
@@ -143,39 +139,60 @@ class ZonesViewModel @Inject constructor(
 
     fun startNew() {
         if (!_state.value.canAdd) return
-        _state.update { it.copy(draft = ZoneDraft(), problemRes = null) }
+        _state.update { it.copy(edited = EditedZone(), problemRes = null, errorRes = null) }
     }
 
+    /**
+     * Изменить зону. Контур нарисован на её кадре — он и показывается, чтобы
+     * вершины легли туда же. «Обновить вид» заменит кадр на свежий.
+     */
     fun edit(zoneId: String) {
         val zone = _state.value.zones.firstOrNull { it.id == zoneId } ?: return
-        _state.update { it.copy(draft = ZoneDraft(zone.id, zone.name, zone.polygon), problemRes = null) }
+        _state.update {
+            it.copy(edited = EditedZone(zone.id, zone.version, zone.name, zone.polygon), problemRes = null, errorRes = null)
+        }
+        if (_state.value.frameId == zone.referenceFrameId) return
+        _state.update { it.copy(frameLoading = true) }
+        viewModelScope.launch {
+            try {
+                val bytes = image(zone.referenceMediaId)
+                _state.update { it.copy(frameLoading = false, frame = bytes, frameId = zone.referenceFrameId, frameCapturedAt = null) }
+            } catch (error: AppError) {
+                // Кадр могли удалить по сроку хранения — тогда рисуют на свежем виде.
+                _state.update { it.copy(frameLoading = false, errorRes = error.messageRes()) }
+            }
+        }
     }
 
     fun cancelEdit() {
-        _state.update { it.copy(draft = null, problemRes = null) }
+        _state.update { it.copy(edited = null, problemRes = null) }
     }
 
-    fun setName(value: String) = changeDraft { it.copy(name = value.take(ZoneGeometry.MAX_NAME_LENGTH)) }
+    fun setName(value: String) = change { it.copy(name = value.take(ZoneGeometry.MAX_NAME_LENGTH)) }
 
-    fun addPoint(point: ZonePoint) = changeDraft { draft ->
-        if (draft.points.size >= ZoneGeometry.MAX_VERTICES) draft else draft.copy(points = draft.points + point.clamped())
+    fun addPoint(point: ZonePoint) = change { zone ->
+        if (zone.points.size >= ZoneGeometry.MAX_VERTICES) zone else zone.copy(points = zone.points + point.clamped())
     }
 
-    fun movePoint(index: Int, point: ZonePoint) = changeDraft { draft ->
-        if (index !in draft.points.indices) draft
-        else draft.copy(points = draft.points.toMutableList().also { it[index] = point.clamped() })
+    fun movePoint(index: Int, point: ZonePoint) = change { zone ->
+        if (index !in zone.points.indices) zone
+        else zone.copy(points = zone.points.toMutableList().also { it[index] = point.clamped() })
     }
 
-    fun undoPoint() = changeDraft { it.copy(points = it.points.dropLast(1)) }
+    fun undoPoint() = change { it.copy(points = it.points.dropLast(1)) }
 
-    fun clearPoints() = changeDraft { it.copy(points = emptyList()) }
+    fun clearPoints() = change { it.copy(points = emptyList()) }
 
     fun save() {
         val agent = agentId ?: return
-        val draft = _state.value.draft ?: return
+        val camera = cameraId ?: return
+        val state = _state.value
+        val edited = state.edited ?: return
+        if (state.saving) return
         val problem = when {
-            draft.name.isBlank() -> R.string.zone_problem_name
-            else -> when (ZoneGeometry.problem(draft.points)) {
+            edited.name.isBlank() -> R.string.zone_problem_name
+            state.frameId == null -> R.string.zone_no_frame
+            else -> when (ZoneGeometry.problem(edited.points)) {
                 ZoneGeometry.Problem.TOO_FEW_POINTS -> R.string.zone_problem_few_points
                 ZoneGeometry.Problem.TOO_MANY_POINTS -> R.string.zone_problem_many_points
                 ZoneGeometry.Problem.SELF_INTERSECTING -> R.string.zone_problem_intersecting
@@ -187,31 +204,47 @@ class ZonesViewModel @Inject constructor(
             _state.update { it.copy(problemRes = problem) }
             return
         }
-        val zone = Zone(
-            id = draft.id ?: UUID.randomUUID().toString(),
-            agentId = agent,
-            name = draft.name.trim(),
-            polygon = draft.points,
-        )
+        val draft = ZoneDraft(name = edited.name, polygon = edited.points, referenceFrameId = state.frameId!!)
+        _state.update { it.copy(saving = true, errorRes = null) }
         viewModelScope.launch {
-            zonesRepository.save(zone)
-            _state.update { it.copy(draft = null, zones = zonesRepository.zones(agent)) }
+            try {
+                if (edited.id == null || edited.version == null) {
+                    zonesRepository.create(agent, camera, draft)
+                } else {
+                    zonesRepository.update(agent, camera, edited.id, edited.version, draft)
+                }
+                val zones = zonesRepository.zones(agent, camera)
+                _state.update { it.copy(saving = false, edited = null, zones = zones) }
+            } catch (error: AppError) {
+                _state.update { it.copy(saving = false, errorRes = error.messageRes()) }
+            }
         }
     }
 
     fun delete() {
         val agent = agentId ?: return
-        val id = _state.value.draft?.id ?: return
+        val camera = cameraId ?: return
+        val id = _state.value.edited?.id ?: return
+        if (_state.value.saving) return
+        _state.update { it.copy(saving = true, errorRes = null) }
         viewModelScope.launch {
-            zonesRepository.delete(id)
-            _state.update { it.copy(draft = null, zones = zonesRepository.zones(agent)) }
+            try {
+                zonesRepository.delete(agent, camera, id)
+                val zones = zonesRepository.zones(agent, camera)
+                _state.update { it.copy(saving = false, edited = null, zones = zones) }
+            } catch (error: AppError) {
+                _state.update { it.copy(saving = false, errorRes = error.messageRes()) }
+            }
         }
     }
 
-    private fun changeDraft(transform: (ZoneDraft) -> ZoneDraft) {
+    private suspend fun image(mediaId: String): ByteArray =
+        (events.media(mediaId) as? MediaPayload.Image)?.bytes ?: throw AppError.MediaUnsupported(null)
+
+    private fun change(transform: (EditedZone) -> EditedZone) {
         _state.update { state ->
-            val draft = state.draft ?: return@update state
-            state.copy(draft = transform(draft), problemRes = null)
+            val edited = state.edited ?: return@update state
+            state.copy(edited = transform(edited), problemRes = null)
         }
     }
 

@@ -106,10 +106,9 @@ data class FallEventDto(
     val analysis: JsonObject? = null,
 )
 
-/**
- * Ответ `GET /api/v1/agents/{agent_id}/current-frame`:
- * последний проанализированный кадр и люди на нём, рамки в пикселях кадра.
- */
+// --- Критические зоны (mobile-server 2.0.0-draft) ---
+
+/** Последний кадр камеры для разметки. JPEG — через `GET /api/v1/media/{media_id}`. */
 @Serializable
 data class CurrentFrameDto(
     @SerialName("frame_id") val frameId: String,
@@ -117,12 +116,38 @@ data class CurrentFrameDto(
     @SerialName("captured_at") val capturedAt: String? = null,
     val width: Int = 0,
     val height: Int = 0,
-    val people: List<DetectedPersonDto> = emptyList(),
+)
+
+/** Зона камеры. Вершины — доли кадра `reference_frame_id`: `[[x, y], ...]`. */
+@Serializable
+data class ZoneDto(
+    @SerialName("zone_id") val zoneId: String,
+    @SerialName("agent_id") val agentId: String = "",
+    @SerialName("camera_id") val cameraId: String = "",
+    val name: String = "",
+    val polygon: List<List<Double>> = emptyList(),
+    @SerialName("reference_frame_id") val referenceFrameId: String = "",
+    @SerialName("reference_media_id") val referenceMediaId: String = "",
+    val state: String = "draft",
+    val version: Int = 1,
 )
 
 @Serializable
-data class DetectedPersonDto(
-    /** `[x1, y1, x2, y2]` в пикселях, начало в левом верхнем углу. */
-    @SerialName("bbox_xyxy") val bboxXyxy: List<Double> = emptyList(),
-    val confidence: Double? = null,
+data class ZoneListDto(val items: List<ZoneDto> = emptyList())
+
+/** Тело `POST …/zones`. Лишних полей сервер не принимает (`additionalProperties: false`). */
+@Serializable
+data class ZoneRequestDto(
+    val name: String,
+    val polygon: List<List<Double>>,
+    @SerialName("reference_frame_id") val referenceFrameId: String,
+)
+
+/** Тело `PUT …/zones/{zone_id}`: то же плюс версия, которую редактировали. */
+@Serializable
+data class ZoneUpdateRequestDto(
+    val name: String,
+    val polygon: List<List<Double>>,
+    @SerialName("reference_frame_id") val referenceFrameId: String,
+    val version: Int,
 )

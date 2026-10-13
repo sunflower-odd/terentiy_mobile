@@ -3,6 +3,7 @@ package ru.terentiy.mobile.data.remote
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -308,35 +309,70 @@ class TerentiyApiContractTest {
     }
 
     @Test
-    fun `вид с камеры приходит с рамками людей`() = runTest {
+    fun `вид с камеры — по пути камеры агента`() = runTest {
         respond(
             200,
             """
-            {
-              "frame_id": "frame-1",
-              "media_id": "media-frame-1",
-              "captured_at": "2026-10-13T10:00:00Z",
-              "width": 640,
-              "height": 480,
-              "people": [{"bbox_xyxy": [100.5, 50.0, 220.0, 400.0], "confidence": 0.91}]
-            }
+            {"frame_id":"frame-1","media_id":"media-frame-1","captured_at":"2026-10-13T10:00:00Z","width":640,"height":480}
             """.trimIndent(),
         )
 
-        val frame = api.currentFrame("agent-1").toDomain()
+        val frame = api.currentFrame("agent-1", "camera-1").toDomain()
 
-        assertEquals("/api/v1/agents/agent-1/current-frame", server.takeRequest().path)
+        assertEquals("/api/v1/agents/agent-1/cameras/camera-1/current-frame", server.takeRequest().path)
         assertEquals("media-frame-1", frame.mediaId)
-        assertEquals(1, frame.people.size)
-        assertEquals(400f / 480f, frame.people.single().bottom, 1e-6f)
+        assertEquals(640, frame.width)
     }
 
     @Test
     fun `камера без кадров отвечает кодом camera_unavailable`() = runTest {
-        respond(404, """{"code":"camera_unavailable","message":"No analyzed frame from this camera yet"}""")
+        respond(404, """{"code":"camera_unavailable","message":"No recent frame from this camera"}""")
 
-        val error = runCatching { apiCall(errorMapper) { api.currentFrame("agent-1") } }.exceptionOrNull()
+        val error = runCatching { apiCall(errorMapper) { api.currentFrame("agent-1", "camera-1") } }.exceptionOrNull()
 
         assertEquals(AppError.CameraUnavailable, error)
+    }
+
+    @Test
+    fun `зона создаётся телом без лишних полей`() = runTest {
+        respond(
+            201,
+            """
+            {"zone_id":"z1","agent_id":"agent-1","camera_id":"camera-1","name":"Дверь",
+             "polygon":[[0.1,0.2],[0.5,0.2],[0.5,0.6]],"reference_frame_id":"frame-1","reference_media_id":"media-1",
+             "state":"draft","version":1,"created_at":"2026-10-13T10:00:00Z","updated_at":"2026-10-13T10:00:00Z"}
+            """.trimIndent(),
+        )
+        val draft = ru.terentiy.mobile.domain.ZoneDraft(
+            name = "Дверь",
+            polygon = listOf(
+                ru.terentiy.mobile.domain.ZonePoint(0.1f, 0.2f),
+                ru.terentiy.mobile.domain.ZonePoint(0.5f, 0.2f),
+                ru.terentiy.mobile.domain.ZonePoint(0.5f, 0.6f),
+            ),
+            referenceFrameId = "frame-1",
+        )
+
+        val zone = api.createZone("agent-1", "camera-1", draft.toRequest()).toDomain()
+
+        val request = server.takeRequest()
+        assertEquals("/api/v1/agents/agent-1/cameras/camera-1/zones", request.path)
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals(setOf("name", "polygon", "reference_frame_id"), body.keys)
+        assertEquals("z1", zone.id)
+        assertEquals(ru.terentiy.mobile.domain.ZoneState.DRAFT, zone.state)
+    }
+
+    @Test
+    fun `конфликт версии зоны`() = runTest {
+        respond(409, """{"code":"zone_version_conflict","message":"Zone was changed"}""")
+
+        val error = runCatching {
+            apiCall(errorMapper) {
+                api.updateZone("agent-1", "camera-1", "z1", ZoneUpdateRequestDto("Дверь", emptyList(), "frame-1", 1))
+            }
+        }.exceptionOrNull()
+
+        assertEquals(AppError.ZoneConflict, error)
     }
 }

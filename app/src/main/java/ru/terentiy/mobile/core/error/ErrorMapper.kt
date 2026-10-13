@@ -65,9 +65,14 @@ class ErrorMapper @Inject constructor(private val json: Json) {
         "unauthorized", "forbidden" -> AppError.Unauthorized
         "media_not_found" -> AppError.MediaNotFound
         "invalid_activation" -> AppError.Validation(null)
-        // Вид с камеры (current-frame). Чужая или удалённая камера для
-        // пользователя означает то же самое: кадров с неё нет.
+        // Критические зоны, mobile-server 2.0.0-draft. Чужая или удалённая
+        // камера для пользователя означает то же самое: кадров с неё нет.
         "camera_unavailable", "agent_not_found" -> AppError.CameraUnavailable
+        "zone_not_found" -> AppError.ZoneNotFound
+        "zone_version_conflict" -> AppError.ZoneConflict
+        "zone_binding_in_progress" -> AppError.ZoneBusy
+        "zone_limit_reached" -> AppError.ZoneLimit
+        "invalid_zone", "invalid_reference_frame" -> AppError.Validation(null)
         else -> null
     }
 

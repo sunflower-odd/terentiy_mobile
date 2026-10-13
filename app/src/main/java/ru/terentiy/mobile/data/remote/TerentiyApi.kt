@@ -3,8 +3,10 @@ package ru.terentiy.mobile.data.remote
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Streaming
@@ -58,10 +60,35 @@ interface TerentiyApi {
     @GET("api/v1/media/{mediaId}")
     suspend fun media(@Path("mediaId") mediaId: String): Response<ResponseBody>
 
-    /**
-     * Последний проанализированный кадр камеры и рамки людей на нём —
-     * для разметки критической зоны. Сам JPEG берётся через [media].
-     */
-    @GET("api/v1/agents/{agentId}/current-frame")
-    suspend fun currentFrame(@Path("agentId") agentId: String): CurrentFrameDto
+    // --- Критические зоны (mobile-server 2.0.0-draft) ---
+
+    /** Последний кадр камеры для разметки. Сам JPEG — через [media]. */
+    @GET("api/v1/agents/{agentId}/cameras/{cameraId}/current-frame")
+    suspend fun currentFrame(@Path("agentId") agentId: String, @Path("cameraId") cameraId: String): CurrentFrameDto
+
+    @GET("api/v1/agents/{agentId}/cameras/{cameraId}/zones")
+    suspend fun zones(@Path("agentId") agentId: String, @Path("cameraId") cameraId: String): ZoneListDto
+
+    @POST("api/v1/agents/{agentId}/cameras/{cameraId}/zones")
+    suspend fun createZone(
+        @Path("agentId") agentId: String,
+        @Path("cameraId") cameraId: String,
+        @Body body: ZoneRequestDto,
+    ): ZoneDto
+
+    @PUT("api/v1/agents/{agentId}/cameras/{cameraId}/zones/{zoneId}")
+    suspend fun updateZone(
+        @Path("agentId") agentId: String,
+        @Path("cameraId") cameraId: String,
+        @Path("zoneId") zoneId: String,
+        @Body body: ZoneUpdateRequestDto,
+    ): ZoneDto
+
+    /** `204` без тела: `Response<Unit>`, иначе конвертер попытается разобрать пустоту. */
+    @DELETE("api/v1/agents/{agentId}/cameras/{cameraId}/zones/{zoneId}")
+    suspend fun deleteZone(
+        @Path("agentId") agentId: String,
+        @Path("cameraId") cameraId: String,
+        @Path("zoneId") zoneId: String,
+    ): Response<Unit>
 }

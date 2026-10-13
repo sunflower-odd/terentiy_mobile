@@ -13,7 +13,10 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
-import ru.terentiy.mobile.domain.PersonBox
+import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneDraft
+import ru.terentiy.mobile.domain.ZonePoint
+import ru.terentiy.mobile.domain.ZoneState
 import ru.terentiy.mobile.domain.EventStatus
 import ru.terentiy.mobile.domain.FallAnalysis
 import ru.terentiy.mobile.domain.FallEvent
@@ -79,39 +82,38 @@ fun FallEventDto.toDomain(): FallEvent? {
     )
 }
 
-/**
- * Рамки переводятся из пикселей в доли кадра — в тех же единицах, что вершины
- * зоны. Без размеров кадра перевести не во что, и людей тогда нет: лучше
- * «никого не видно», чем рамка не на своём месте.
- */
-fun CurrentFrameDto.toDomain(): CurrentFrame {
-    val boxes = if (width <= 0 || height <= 0) {
-        if (people.isNotEmpty()) Timber.w("Кадр без размеров, рамки отброшены | frame=%s", frameId)
-        emptyList()
-    } else {
-        people.mapNotNull { person -> person.toBox(width.toFloat(), height.toFloat()) }
-    }
-    return CurrentFrame(
-        frameId = frameId,
-        mediaId = mediaId,
-        capturedAt = capturedAt.toInstantOrNull(),
-        width = width,
-        height = height,
-        people = boxes,
-    )
-}
+fun CurrentFrameDto.toDomain(): CurrentFrame = CurrentFrame(
+    frameId = frameId,
+    mediaId = mediaId,
+    capturedAt = capturedAt.toInstantOrNull(),
+    width = width,
+    height = height,
+)
 
-private fun DetectedPersonDto.toBox(width: Float, height: Float): PersonBox? {
-    if (bboxXyxy.size != 4) return null
-    val (x1, y1, x2, y2) = bboxXyxy.map { it.toFloat() }
-    if (x2 <= x1 || y2 <= y1) return null
-    return PersonBox(
-        left = (x1 / width).coerceIn(0f, 1f),
-        top = (y1 / height).coerceIn(0f, 1f),
-        right = (x2 / width).coerceIn(0f, 1f),
-        bottom = (y2 / height).coerceIn(0f, 1f),
-    )
-}
+/** Вершина не из двух чисел пропускается: лучше контур без точки, чем падение списка. */
+fun ZoneDto.toDomain(): Zone = Zone(
+    id = zoneId,
+    agentId = agentId,
+    cameraId = cameraId,
+    name = name,
+    polygon = polygon.mapNotNull { pair -> if (pair.size == 2) ZonePoint(pair[0].toFloat(), pair[1].toFloat()) else null },
+    referenceFrameId = referenceFrameId,
+    referenceMediaId = referenceMediaId,
+    state = ZoneState.parse(state),
+    version = version,
+)
+
+fun ZoneListDto.toDomain(): List<Zone> = items.map { it.toDomain() }
+
+fun ZoneDraft.toRequest(): ZoneRequestDto = ZoneRequestDto(name.trim(), polygon.toWire(), referenceFrameId)
+
+fun ZoneDraft.toUpdateRequest(version: Int): ZoneUpdateRequestDto =
+    ZoneUpdateRequestDto(name.trim(), polygon.toWire(), referenceFrameId, version)
+
+/** Шести знаков после запятой хватает с запасом: это доли пикселя на 4K-кадре. */
+private fun List<ZonePoint>.toWire(): List<List<Double>> = map { listOf(it.x.round6(), it.y.round6()) }
+
+private fun Float.round6(): Double = Math.round(this.toDouble() * 1_000_000.0) / 1_000_000.0
 
 fun FallEventListDto.toDomain(): List<FallEvent> = items.mapNotNull { it.toDomain() }
 

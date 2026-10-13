@@ -19,10 +19,14 @@ import ru.terentiy.mobile.data.remote.TerentiyApi
 import ru.terentiy.mobile.data.remote.toDomain
 import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.AuthRepository
-import ru.terentiy.mobile.data.repository.CurrentFrameSource
+import ru.terentiy.mobile.data.repository.ZonesRepository
+import ru.terentiy.mobile.data.remote.toRequest
+import ru.terentiy.mobile.data.remote.toUpdateRequest
 import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
+import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.SessionState
@@ -145,18 +149,48 @@ class NetworkEventsRepository @Inject constructor(
         authorized { downloader.download(mediaId, onProgress) }
 }
 
+/**
+ * Зоны по маршрутам `…/agents/{agent_id}/cameras/{camera_id}/…` (2.0.0-draft).
+ *
+ * Голый `404` без кода или `405` значит, что на сервере маршрутов ещё нет
+ * (зоны делает автор backend отдельно). Пользователю это показывается как
+ * «сервер пока не умеет хранить зоны», а не как «запись не найдена».
+ */
 @Singleton
-class NetworkCurrentFrameSource @Inject constructor(
+class NetworkZonesRepository @Inject constructor(
     private val api: TerentiyApi,
     private val authorized: AuthorizedCall,
-) : CurrentFrameSource {
+    private val errorMapper: ErrorMapper,
+) : ZonesRepository {
 
-    override suspend fun currentFrame(agentId: String): CurrentFrame = try {
-        authorized { api.currentFrame(agentId).toDomain() }
-    } catch (error: AppError.MediaNotFound) {
-        // Голый 404 без кода — сервер ещё без маршрута current-frame.
-        // Для пользователя это то же, что «кадров нет».
-        Timber.w("Сервер не отдаёт вид с камеры: маршрута current-frame нет")
-        throw AppError.CameraUnavailable
+    override suspend fun currentFrame(agentId: String, cameraId: String): CurrentFrame =
+        unsupportedAs(AppError.CameraUnavailable) { api.currentFrame(agentId, cameraId).toDomain() }
+
+    override suspend fun zones(agentId: String, cameraId: String): List<Zone> =
+        unsupportedAs(AppError.ZonesUnsupported) { api.zones(agentId, cameraId).toDomain() }
+
+    override suspend fun create(agentId: String, cameraId: String, draft: ZoneDraft): Zone =
+        unsupportedAs(AppError.ZonesUnsupported) { api.createZone(agentId, cameraId, draft.toRequest()).toDomain() }
+
+    override suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone =
+        unsupportedAs(AppError.ZonesUnsupported) {
+            api.updateZone(agentId, cameraId, zoneId, draft.toUpdateRequest(version)).toDomain()
+        }
+
+    override suspend fun delete(agentId: String, cameraId: String, zoneId: String) {
+        unsupportedAs(AppError.ZonesUnsupported) {
+            val response = api.deleteZone(agentId, cameraId, zoneId)
+            // Response<Unit> не бросает HttpException сам — проверяем вручную.
+            if (!response.isSuccessful) throw errorMapper.fromResponse(response.code(), response.errorBody()?.string())
+        }
+    }
+
+    private suspend fun <T> unsupportedAs(replacement: AppError, block: suspend () -> T): T = try {
+        authorized { block() }
+    } catch (error: AppError) {
+        val missingRoute = error == AppError.MediaNotFound || (error is AppError.Server && error.code == null && error.status == 405)
+        if (!missingRoute) throw error
+        Timber.w("Маршрута зон на сервере нет | ответ=%s", error)
+        throw replacement
     }
 }

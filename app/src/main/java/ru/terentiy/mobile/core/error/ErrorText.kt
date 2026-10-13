@@ -21,6 +21,10 @@ fun AppError.messageRes(): Int = when (this) {
     AppError.EventNotFound -> R.string.error_event_not_found
     AppError.CameraUnavailable -> R.string.error_camera_unavailable
     AppError.ZoneNotFound -> R.string.error_zone_not_found
+    AppError.ZoneConflict -> R.string.error_zone_conflict
+    AppError.ZoneBusy -> R.string.error_zone_busy
+    AppError.ZoneLimit -> R.string.error_zone_limit
+    AppError.ZonesUnsupported -> R.string.error_zones_unsupported
     AppError.Network -> R.string.error_network
     is AppError.Validation -> R.string.error_validation
     is AppError.Server -> R.string.error_server

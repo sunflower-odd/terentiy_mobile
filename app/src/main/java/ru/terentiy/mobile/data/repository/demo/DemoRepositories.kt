@@ -18,11 +18,15 @@ import ru.terentiy.mobile.data.local.AppSettings
 import ru.terentiy.mobile.data.local.SessionHolder
 import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.AuthRepository
-import ru.terentiy.mobile.data.repository.CurrentFrameSource
+import ru.terentiy.mobile.data.repository.ZonesRepository
 import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
-import ru.terentiy.mobile.domain.PersonBox
+import java.util.UUID
+import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneDraft
+import ru.terentiy.mobile.domain.ZoneGeometry
+import ru.terentiy.mobile.domain.ZoneState
 import ru.terentiy.mobile.domain.EventStatus
 import ru.terentiy.mobile.domain.FallAnalysis
 import ru.terentiy.mobile.domain.FallEvent
@@ -358,28 +362,76 @@ class DemoEventsRepository @Inject constructor(
 }
 
 /**
- * Вид с камеры в показе без сервера — тот же демо-кадр, что у события
- * падения, с рамкой лежащего человека, снятой с кадра вручную. Так разметку и
- * проверку «в зоне / не в зоне» можно показать без камеры.
+ * Зоны в показе без сервера: живут в памяти до конца процесса и отвечают по
+ * тем же правилам, что сервер по контракту (версии, лимит, перерисовка
+ * сбрасывает состояние в «не проверена»). Вид с камеры — демо-кадр события.
  */
 @Singleton
-class DemoCurrentFrameSource @Inject constructor() : CurrentFrameSource {
+class DemoZonesRepository @Inject constructor() : ZonesRepository {
 
-    override suspend fun currentFrame(agentId: String): CurrentFrame {
+    private val mutex = Mutex()
+    private val zones = mutableListOf<Zone>()
+
+    override suspend fun currentFrame(agentId: String, cameraId: String): CurrentFrame {
         delay(DemoScenario.NETWORK_FEEL_MS)
         return CurrentFrame(
-            frameId = "demo-frame-for-zones",
+            frameId = DEMO_FRAME_ID,
             mediaId = DemoScenario.DEMO_FRAME_MEDIA_ID,
             capturedAt = Instant.now(),
-            width = FRAME_WIDTH,
-            height = FRAME_HEIGHT,
-            // Рамка в пикселях демо-кадра 640×480: человек лежит на полу у стола.
-            people = listOf(PersonBox(120f / FRAME_WIDTH, 315f / FRAME_HEIGHT, 450f / FRAME_WIDTH, 478f / FRAME_HEIGHT)),
+            width = 640,
+            height = 480,
         )
     }
 
+    override suspend fun zones(agentId: String, cameraId: String): List<Zone> {
+        delay(DemoScenario.NETWORK_FEEL_MS)
+        return mutex.withLock { zones.filter { it.agentId == agentId && it.cameraId == cameraId } }
+    }
+
+    override suspend fun create(agentId: String, cameraId: String, draft: ZoneDraft): Zone {
+        delay(DemoScenario.NETWORK_FEEL_MS)
+        return mutex.withLock {
+            if (zones.count { it.agentId == agentId && it.cameraId == cameraId } >= ZoneGeometry.MAX_ZONES) {
+                throw AppError.ZoneLimit
+            }
+            Zone(
+                id = UUID.randomUUID().toString(),
+                agentId = agentId,
+                cameraId = cameraId,
+                name = draft.name.trim(),
+                polygon = draft.polygon,
+                referenceFrameId = draft.referenceFrameId,
+                referenceMediaId = DemoScenario.DEMO_FRAME_MEDIA_ID,
+                state = ZoneState.DRAFT,
+                version = 1,
+            ).also { zones += it }
+        }
+    }
+
+    override suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone {
+        delay(DemoScenario.NETWORK_FEEL_MS)
+        return mutex.withLock {
+            val index = zones.indexOfFirst { it.id == zoneId && it.agentId == agentId && it.cameraId == cameraId }
+            if (index < 0) throw AppError.ZoneNotFound
+            val zone = zones[index]
+            if (zone.version != version) throw AppError.ZoneConflict
+            val redrawn = zone.polygon != draft.polygon || zone.referenceFrameId != draft.referenceFrameId
+            zone.copy(
+                name = draft.name.trim(),
+                polygon = draft.polygon,
+                referenceFrameId = draft.referenceFrameId,
+                state = if (redrawn) ZoneState.DRAFT else zone.state,
+                version = zone.version + 1,
+            ).also { zones[index] = it }
+        }
+    }
+
+    override suspend fun delete(agentId: String, cameraId: String, zoneId: String) {
+        delay(DemoScenario.NETWORK_FEEL_MS)
+        mutex.withLock { zones.removeAll { it.id == zoneId } }
+    }
+
     private companion object {
-        const val FRAME_WIDTH = 640
-        const val FRAME_HEIGHT = 480
+        const val DEMO_FRAME_ID = "demo-frame-for-zones"
     }
 }

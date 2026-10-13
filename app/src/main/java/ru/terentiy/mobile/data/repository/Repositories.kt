@@ -7,6 +7,7 @@ import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.SessionState
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneDraft
 
 /**
  * Контракты слоя данных.
@@ -65,26 +66,24 @@ interface EventsRepository {
     suspend fun media(mediaId: String, onProgress: (Long, Long?) -> Unit = { _, _ -> }): MediaPayload
 }
 
-/** Откуда берётся вид с камеры: сервер или показ без сервера. */
-interface CurrentFrameSource {
-
-    /** Последний проанализированный кадр и люди на нём. JPEG — через [EventsRepository.media]. */
-    suspend fun currentFrame(agentId: String): CurrentFrame
-}
-
 /**
- * Критические зоны.
+ * Критические зоны камеры (mobile-server 2.0.0-draft).
  *
- * Зоны хранятся только на телефоне: сервер в этой версии о них не знает и
- * тревог по ним не поднимает. С сервера берётся только вид с камеры и рамки
- * людей — по ним приложение само проверяет, стоит ли человек в зоне.
+ * Зоны хранятся на сервере. Проверку зоны (сессию привязки) и решение «человек
+ * в зоне» контракт отдаёт серверу; в приложении их пока нет — только вид с
+ * камеры, список, рисование, правка и удаление.
  */
-interface ZonesRepository : CurrentFrameSource {
+interface ZonesRepository {
 
-    suspend fun zones(agentId: String): List<Zone>
+    /** Последний кадр камеры. JPEG — через [EventsRepository.media]. */
+    suspend fun currentFrame(agentId: String, cameraId: String): CurrentFrame
 
-    /** Новая зона или замена зоны с тем же `id`. */
-    suspend fun save(zone: Zone)
+    suspend fun zones(agentId: String, cameraId: String): List<Zone>
 
-    suspend fun delete(zoneId: String)
+    suspend fun create(agentId: String, cameraId: String, draft: ZoneDraft): Zone
+
+    /** [version] — версия, которую редактировали; при расхождении — [ru.terentiy.mobile.core.error.AppError.ZoneConflict]. */
+    suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone
+
+    suspend fun delete(agentId: String, cameraId: String, zoneId: String)
 }

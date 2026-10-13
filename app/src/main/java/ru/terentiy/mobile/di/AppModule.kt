@@ -21,8 +21,6 @@ import ru.terentiy.mobile.data.local.DataStoreSeenEventsStore
 import ru.terentiy.mobile.data.local.KeystoreSecureStorage
 import ru.terentiy.mobile.data.local.SecureStorage
 import ru.terentiy.mobile.data.local.SeenEventsStore
-import ru.terentiy.mobile.data.local.DataStoreZoneStore
-import ru.terentiy.mobile.data.local.ZoneStore
 import ru.terentiy.mobile.data.remote.TerentiyApi
 import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.AuthRepository
@@ -111,10 +109,6 @@ abstract class BindingsModule {
     @Binds
     @Singleton
     abstract fun seenEventsStore(impl: DataStoreSeenEventsStore): SeenEventsStore
-
-    @Binds
-    @Singleton
-    abstract fun zoneStore(impl: DataStoreZoneStore): ZoneStore
 
     @Binds
     @Singleton

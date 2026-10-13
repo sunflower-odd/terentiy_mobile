@@ -1,237 +1,343 @@
 # ВНИМАНИЕ: синхронизированная копия. Оригинал принадлежит репозиторию terentiy_ai.
 # Источник: terentiy_ai/contracts/openapi/mobile-server.openapi.yaml
-# Коммит источника: 57f8e83e2a16962d56686d408a5152652590243e (2026-09-30) плюс
-# маршрут GET /api/v1/agents/{agent_id}/current-frame (номер версии не менялся) — правка
-# отдана автору backend как PR, в main terentiy_ai её пока нет. После слияния
-# вписать сюда хеш коммита.
+# Коммит источника: a6c5b22 (2026-10-12), версия 2.0.0-draft — критические зоны.
 # Синхронизировано: 2026-10-13
 # Правки вносятся в terentiy_ai и переносятся сюда целиком, а не наоборот.
 #
-# Драфт 1.1.0 от 29 сентября (зоны с условиями на сервере) — в
-# contracts/archive/stage01-mobile-api-1.1.0-draft.yaml. Он не реализован.
+# Черновик описывает только зоны. Маршруты падений (/api/v1/events и др.) в
+# нём не перечислены, но на сервере работают как в 1.0.0 — приложение их
+# использует без изменений. Из маршрутов зон на сервере пока реализован только
+# current-frame; остальные делает автор backend.
 
 openapi: 3.1.0
 info:
   title: Terentiy Mobile Server API
-  version: 1.0.0
+  version: 2.0.0-draft
   description: |
-    HTTP contract for a Terentiy mobile application and the server.
+    Первый этап критических зон: пользователь размечает площадку пола перед
+    дверью, а сервер подтверждает, что на свежих кадрах действительно видит
+    опорную точку человека внутри площадки.
 
-    It deliberately contains only mobile-facing endpoints: device activation and
-    login, agent health, fall events, evidence downloads and the current camera
-    view used to mark critical zones. Agent-to-server
-    endpoints are documented separately in `terentiy-api.openapi.yaml`.
+    Сервер является единственным источником истины для pose, опорной точки,
+    попадания в полигон и результата привязки. Мобильное приложение только
+    рисует контур и показывает возвращённый маркер. Edge-агент продолжает
+    публиковать кадры по своему существующему протоколу; этот контракт его не
+    изменяет.
 servers:
   - url: http://127.0.0.1:8080
-    description: Local development or a server reachable through a LAN address.
+    description: Local development or a server reachable on the home LAN.
 tags:
   - name: Diagnostics
-    description: Server availability check.
   - name: Authentication
-    description: Mobile device activation and authentication.
   - name: Agents
-    description: Edge-agent health visible to the mobile household.
-  - name: Events
-    description: Confirmed falls and their evidence.
+  - name: Zones
+  - name: Media
 paths:
   /health:
     get:
       tags: [Diagnostics]
-      summary: Check API and PostgreSQL availability
+      summary: Check server availability
       operationId: health
       responses:
         '200':
-          description: API and PostgreSQL are available.
+          description: Server is available.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Health'
-              example:
-                status: ok
-                database: ok
-        '503':
-          description: API is running, but PostgreSQL is unavailable.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Health'
-              example:
-                status: degraded
-                database: unavailable
+              schema: { $ref: '#/components/schemas/Health' }
 
   /api/v1/mobile/activate:
     post:
       tags: [Authentication]
-      summary: Activate a mobile device
-      description: |
-        Registers a new mobile device in the household selected by an
-        installation code and returns a bearer token. A device ID can be
-        activated only once; use login after the first successful activation.
+      summary: Activate a mobile device in a household
       operationId: activateMobile
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/MobileActivationRequest'
-            example:
-              installation_code: HOME-SETUP-CODE
-              device_id: android-7f3a3b15
-              pin: '123456'
+            schema: { $ref: '#/components/schemas/MobileActivationRequest' }
       responses:
         '201':
-          description: Device activated and a bearer token issued.
+          description: Device activated and bearer token issued.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/MobileToken'
-        '401':
-          $ref: '#/components/responses/ServiceError'
-        '409':
-          $ref: '#/components/responses/ServiceError'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
+              schema: { $ref: '#/components/schemas/MobileToken' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '409': { $ref: '#/components/responses/ServiceError' }
+        '422': { $ref: '#/components/responses/ServiceError' }
 
   /api/v1/mobile/login:
     post:
       tags: [Authentication]
       summary: Log in an activated mobile device
-      description: |
-        Exchanges a previously activated device ID and its six-digit PIN for a
-        new bearer token. The PIN is never returned by the API.
       operationId: loginMobile
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/MobileLoginRequest'
-            example:
-              device_id: android-7f3a3b15
-              pin: '123456'
+            schema: { $ref: '#/components/schemas/MobileLoginRequest' }
       responses:
         '200':
-          description: New bearer token issued.
+          description: Bearer token issued.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/MobileToken'
-        '401':
-          $ref: '#/components/responses/ServiceError'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
+              schema: { $ref: '#/components/schemas/MobileToken' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '422': { $ref: '#/components/responses/ServiceError' }
 
   /api/v1/agents:
     get:
       tags: [Agents]
-      summary: List household agents and their latest health status
-      description: |
-        Returns only agents belonging to the authenticated mobile device's
-        household. Status fields are `null` until an agent has sent its first
-        heartbeat.
+      summary: List cameras available to the household
       operationId: listAgents
-      security:
-        - bearerAuth: []
+      security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: Household agents and their latest health status.
+          description: Household agents.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/AgentList'
-        '401':
-          $ref: '#/components/responses/ServiceError'
+              schema: { $ref: '#/components/schemas/AgentList' }
+        '401': { $ref: '#/components/responses/ServiceError' }
 
-  /api/v1/agents/{agent_id}/current-frame:
+  /api/v1/agents/{agent_id}/cameras/{camera_id}/current-frame:
     get:
       tags: [Agents]
-      summary: Latest analyzed camera frame with detected people
+      summary: Get the latest camera frame for drawing or checking a zone
       description: |
-        Returns the newest frame of the agent that the ML worker has already
-        analyzed, together with person boxes from the same detector that is
-        used for falls. The mobile application uses it to draw a critical zone
-        and to check whether a person stands inside it; zones themselves are
-        not stored on the server in this version.
-
-        The frame is not necessarily the newest received one: while the worker
-        lags behind, the last analyzed frame is returned so that the boxes and
-        the image always belong together. `captured_at` tells how old it is.
-        Download the JPEG with `/api/v1/media/{media_id}`.
+        The returned frame_id is immutable. It must be supplied as
+        reference_frame_id when a zone is created or redrawn. Download the
+        JPEG through GET /api/v1/media/{media_id}.
       operationId: getCurrentFrame
-      security:
-        - bearerAuth: []
+      security: [{ bearerAuth: [] }]
       parameters:
         - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
       responses:
         '200':
-          description: Latest analyzed frame and people on it.
+          description: Latest frame metadata.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/CurrentFrame'
-        '401':
-          $ref: '#/components/responses/ServiceError'
+              schema: { $ref: '#/components/schemas/CurrentFrame' }
+        '401': { $ref: '#/components/responses/ServiceError' }
         '404':
-          description: |
-            `agent_not_found` — the agent does not exist or belongs to another
-            household; `camera_unavailable` — no analyzed frame yet.
+          description: agent_not_found or camera_unavailable.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+              schema: { $ref: '#/components/schemas/Error' }
 
-  /api/v1/events:
+  /api/v1/agents/{agent_id}/cameras/{camera_id}/zones:
     get:
-      tags: [Events]
-      summary: List confirmed fall events
-      description: |
-        Returns only complete events from the authenticated mobile device's
-        household, ordered from newest to oldest. Each event has downloadable
-        JPEG frame and MP4 clip evidence.
-      operationId: listFallEvents
-      security:
-        - bearerAuth: []
+      tags: [Zones]
+      summary: List door zones
+      operationId: listZones
+      security: [{ bearerAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/AgentIdFilter'
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
       responses:
         '200':
-          description: Confirmed fall events visible to the mobile device.
+          description: Zones of the camera, including binding state.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/FallEventList'
-        '401':
-          $ref: '#/components/responses/ServiceError'
+              schema: { $ref: '#/components/schemas/ZoneList' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+    post:
+      tags: [Zones]
+      summary: Create an unbound door zone
+      description: |
+        Creates only a floor polygon and its reference frame. The new zone is
+        draft and produces no monitoring result until a binding session reaches
+        bound. The polygon is in normalized coordinates of reference_frame_id.
+      operationId: createZone
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZoneRequest' }
+      responses:
+        '201':
+          description: Draft zone created with version 1.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Zone' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+        '422':
+          description: invalid_zone, invalid_reference_frame, or zone_limit_reached.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/agents/{agent_id}/cameras/{camera_id}/zones/{zone_id}:
+    get:
+      tags: [Zones]
+      summary: Get one door zone
+      operationId: getZone
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
+        - $ref: '#/components/parameters/ZoneId'
+      responses:
+        '200':
+          description: Current zone.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Zone' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+    put:
+      tags: [Zones]
+      summary: Replace a door zone drawing
+      description: |
+        Requires the current version. Any changed polygon or reference frame
+        invalidates the old binding and changes state to draft; the caller then
+        starts a new binding session.
+      operationId: updateZone
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
+        - $ref: '#/components/parameters/ZoneId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZoneUpdateRequest' }
+      responses:
+        '200':
+          description: Zone replaced and any old binding invalidated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Zone' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+        '409':
+          description: zone_version_conflict or zone_binding_in_progress.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ServiceError' }
+    delete:
+      tags: [Zones]
+      summary: Delete a door zone
+      operationId: deleteZone
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
+        - $ref: '#/components/parameters/ZoneId'
+      responses:
+        '204': { description: Zone and any unfinished binding session deleted. }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+
+  /api/v1/agents/{agent_id}/cameras/{camera_id}/zones/{zone_id}/binding-sessions:
+    post:
+      tags: [Zones]
+      summary: Start server-side binding of a door zone
+      description: |
+        The user stands on the marked floor area. The server pose worker uses
+        fresh camera frames, computes a support point and tests it against the
+        polygon. Neither keypoints nor a client-computed point are accepted.
+        At most one non-terminal session exists for one zone.
+      operationId: startZoneBindingSession
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
+        - $ref: '#/components/parameters/ZoneId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartZoneBindingRequest' }
+      responses:
+        '201':
+          description: Binding started; poll the session resource.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZoneBindingSession' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+        '409':
+          description: zone_version_conflict, zone_binding_in_progress, or zone_already_bound.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: camera_unavailable or invalid_zone.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/agents/{agent_id}/cameras/{camera_id}/zones/{zone_id}/binding-sessions/{binding_session_id}:
+    get:
+      tags: [Zones]
+      summary: Get server-side binding progress
+      description: |
+        Poll while the person is standing in the zone. last_observation gives
+        the application a marker to draw over its JPEG. in_zone is decided by
+        the server and must not be recalculated by the mobile client.
+
+        The UI uses state, not the numeric observation counters, as its text:
+        waiting_for_frame — «Получаем вид с камеры»;
+        waiting_for_person — «Встаньте в отмеченное место»;
+        collecting — «Проверяем положение…»;
+        bound — «Зона проверена».
+      operationId: getZoneBindingSession
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
+        - $ref: '#/components/parameters/ZoneId'
+        - $ref: '#/components/parameters/BindingSessionId'
+      responses:
+        '200':
+          description: Progress or final result.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZoneBindingSession' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+    delete:
+      tags: [Zones]
+      summary: Cancel a pending binding session
+      operationId: cancelZoneBindingSession
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
+        - $ref: '#/components/parameters/ZoneId'
+        - $ref: '#/components/parameters/BindingSessionId'
+      responses:
+        '204': { description: Session cancelled or already terminal. }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
 
   /api/v1/media/{media_id}:
     get:
-      tags: [Events]
-      summary: Download event evidence
-      description: |
-        Downloads JPEG frame or MP4 clip evidence when it belongs to the
-        authenticated mobile device's household. Use `clip_media_id` from a
-        fall event to download its clip.
+      tags: [Media]
+      summary: Download a camera JPEG
       operationId: downloadMedia
-      security:
-        - bearerAuth: []
+      security: [{ bearerAuth: [] }]
       parameters:
         - $ref: '#/components/parameters/MediaId'
       responses:
         '200':
-          description: Binary media. Inspect the `Content-Type` response header.
+          description: JPEG frame belonging to the household.
           content:
             image/jpeg:
-              schema:
-                type: string
-                format: binary
-            video/mp4:
-              schema:
-                type: string
-                format: binary
-        '401':
-          $ref: '#/components/responses/ServiceError'
-        '404':
-          $ref: '#/components/responses/ServiceError'
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
 
 components:
   securitySchemes:
@@ -239,103 +345,66 @@ components:
       type: http
       scheme: bearer
       bearerFormat: opaque
-      description: Mobile access token returned by activation or login.
-
   parameters:
-    AgentIdFilter:
-      name: agent_id
-      in: query
-      required: false
-      description: Return events for one agent only.
-      schema:
-        type: string
-        format: uuid
     AgentId:
       name: agent_id
       in: path
       required: true
-      description: Agent identifier from `/api/v1/agents`.
-      schema:
-        type: string
-        format: uuid
+      schema: { type: string, format: uuid }
+    CameraId:
+      name: camera_id
+      in: path
+      required: true
+      description: Camera selected from the agent record; the server verifies that it belongs to agent_id.
+      schema: { type: string, minLength: 1 }
+    ZoneId:
+      name: zone_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BindingSessionId:
+      name: binding_session_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     MediaId:
       name: media_id
       in: path
       required: true
-      description: Identifier of a JPEG frame or MP4 clip.
-      schema:
-        type: string
-        format: uuid
-
+      schema: { type: string, format: uuid }
   responses:
     ServiceError:
       description: Stable application error.
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-    InvalidRequest:
-      description: Request body is malformed or violates a business validation rule.
-      content:
-        application/json:
-          schema:
-            oneOf:
-              - $ref: '#/components/schemas/Error'
-              - $ref: '#/components/schemas/RequestValidationError'
-
+          schema: { $ref: '#/components/schemas/Error' }
   schemas:
     Health:
       type: object
-      required: [status, database]
+      required: [status]
       properties:
-        status:
-          type: string
-          enum: [ok, degraded]
-        database:
-          type: string
-          enum: [ok, unavailable]
+        status: { type: string, const: ok }
 
     MobileActivationRequest:
       type: object
       required: [installation_code, device_id, pin]
       properties:
-        installation_code:
-          type: string
-          description: Installation code provisioned on the server.
-        device_id:
-          type: string
-          minLength: 1
-          description: Stable device-generated identifier, unique within the server.
-        pin:
-          type: string
-          pattern: '^\d{6}$'
-          description: Six decimal digits selected during activation.
-
+        installation_code: { type: string, minLength: 1 }
+        device_id: { type: string, minLength: 1 }
+        pin: { type: string, pattern: '^\\d{6}$' }
     MobileLoginRequest:
       type: object
       required: [device_id, pin]
       properties:
-        device_id:
-          type: string
-          description: Device ID used during activation.
-        pin:
-          type: string
-          pattern: '^\d{6}$'
-          description: Six-digit PIN chosen during activation.
-
+        device_id: { type: string, minLength: 1 }
+        pin: { type: string, pattern: '^\\d{6}$' }
     MobileToken:
       type: object
       required: [access_token, token_type, household_id]
       properties:
-        access_token:
-          type: string
-          description: "Opaque token; send it as `Authorization: Bearer <token>`."
-        token_type:
-          type: string
-          const: bearer
-        household_id:
-          type: string
-          description: Stable identifier of the household selected by the installation code.
+        access_token: { type: string }
+        token_type: { type: string, const: bearer }
+        household_id: { type: string, format: uuid }
 
     AgentList:
       type: object
@@ -343,189 +412,189 @@ components:
       properties:
         items:
           type: array
-          items:
-            $ref: '#/components/schemas/Agent'
-
+          items: { $ref: '#/components/schemas/Agent' }
     Agent:
       type: object
-      required:
-        - id
-        - household_id
-        - name
-        - camera_id
-        - software_version
-        - created_at
-        - reported_at
-        - agent_online
-        - camera_connected
-        - stream_active
-        - queue_size
-        - last_frame_at
-        - online
+      required: [agent_id, name, camera_id, online]
       properties:
-        id:
-          type: string
-          format: uuid
-        household_id:
-          type: string
-        name:
-          type: string
+        agent_id: { type: string, format: uuid }
+        name: { type: string }
         camera_id:
           type: string
-        software_version:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-        reported_at:
-          type: [string, 'null']
-          format: date-time
-          description: Timestamp of the last agent heartbeat.
-        agent_online:
-          type: [boolean, 'null']
-          description: Value reported by the agent in its last heartbeat.
-        camera_connected:
-          type: [boolean, 'null']
-          description: Value reported by the agent in its last heartbeat.
-        stream_active:
-          type: [boolean, 'null']
-          description: Value reported by the agent in its last heartbeat.
-        queue_size:
-          type: [integer, 'null']
-          minimum: 0
-          description: Frames waiting locally on the agent at its last heartbeat.
-        last_frame_at:
-          type: [string, 'null']
-          format: date-time
-        online:
-          type: boolean
-          description: |
-            True only when the last heartbeat reports `agent_online = true` and
-            it is still fresh according to the server's offline timeout.
+          description: Pass together with agent_id in every camera and zone request.
+        online: { type: boolean }
 
-    FallEventList:
+    CurrentFrame:
+      type: object
+      required: [frame_id, media_id, captured_at, width, height]
+      properties:
+        frame_id: { type: string, format: uuid }
+        media_id: { type: string, format: uuid }
+        captured_at: { type: string, format: date-time }
+        width: { type: integer, minimum: 1 }
+        height: { type: integer, minimum: 1 }
+
+    ZonePolygon:
+      type: array
+      description: |
+        Clockwise or counter-clockwise vertices in normalized image coordinates.
+        The server rejects self-intersection and area smaller than 0.5% of the
+        reference frame.
+      minItems: 3
+      maxItems: 12
+      items:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items: { type: number, minimum: 0, maximum: 1 }
+    ZoneRequest:
+      type: object
+      additionalProperties: false
+      required: [name, polygon, reference_frame_id]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        polygon: { $ref: '#/components/schemas/ZonePolygon' }
+        reference_frame_id:
+          type: string
+          format: uuid
+          description: Immutable frame returned by current-frame before drawing.
+    ZoneUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, polygon, reference_frame_id, version]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        polygon: { $ref: '#/components/schemas/ZonePolygon' }
+        reference_frame_id:
+          type: string
+          format: uuid
+        version: { type: integer, minimum: 1 }
+    Zone:
+      type: object
+      required: [zone_id, agent_id, camera_id, name, polygon, reference_frame_id, reference_media_id, state, version, created_at, updated_at]
+      properties:
+        zone_id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        camera_id: { type: string }
+        name: { type: string }
+        polygon: { $ref: '#/components/schemas/ZonePolygon' }
+        reference_frame_id: { type: string, format: uuid }
+        reference_media_id: { type: string, format: uuid }
+        state:
+          type: string
+          enum: [draft, binding, bound, needs_rebinding]
+        version: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ZoneList:
       type: object
       required: [items]
       properties:
         items:
           type: array
-          items:
-            $ref: '#/components/schemas/FallEvent'
+          items: { $ref: '#/components/schemas/Zone' }
 
-    FallEvent:
+    StartZoneBindingRequest:
       type: object
-      required:
-        - id
-        - agent_id
-        - frame_id
-        - frame_media_id
-        - captured_at
-        - status
-        - analysis
-        - clip_media_id
-        - created_at
+      additionalProperties: false
+      required: [zone_version]
       properties:
-        id:
-          type: string
-          format: uuid
-        agent_id:
-          type: string
-          format: uuid
-        frame_id:
-          type: string
-          format: uuid
-        frame_media_id:
-          type: string
-          format: uuid
-          description: JPEG frame identifier for immediate display or download.
-        captured_at:
-          type: string
-          format: date-time
-          description: Timestamp of the frame that produced the confirmed fall.
-        status:
-          type: string
-          enum: [confirmed]
-        analysis:
-          type: object
-          additionalProperties: true
-          description: ML and fall-rule result recorded by the server.
-        clip_media_id:
-          type: string
-          format: uuid
-          description: MP4 clip identifier, always available for listed events.
-        created_at:
-          type: string
-          format: date-time
-
-    CurrentFrame:
-      type: object
-      required: [frame_id, media_id, captured_at, width, height, people]
-      properties:
-        frame_id:
-          type: string
-          format: uuid
-        media_id:
-          type: string
-          format: uuid
-          description: JPEG of the frame, downloadable via `/api/v1/media/{media_id}`.
-        captured_at:
-          type: string
-          format: date-time
-          description: Capture time of the frame on the agent, UTC.
-        width:
+        zone_version:
           type: integer
-          description: Frame width in pixels.
-        height:
-          type: integer
-          description: Frame height in pixels.
-        people:
-          type: array
-          description: People found on the frame; empty when nobody is visible.
-          items:
-            $ref: '#/components/schemas/DetectedPerson'
-
-    DetectedPerson:
+          minimum: 1
+          description: Version that the user has just reviewed on the screen.
+    ZoneBindingSession:
       type: object
-      required: [bbox_xyxy]
+      required: [binding_session_id, zone_id, zone_version, state, started_at, expires_at, progress, binding, failure]
       properties:
-        bbox_xyxy:
-          type: array
-          description: Box `[x1, y1, x2, y2]` in frame pixels, origin at the top-left corner.
-          minItems: 4
-          maxItems: 4
-          items:
-            type: number
-        confidence:
-          type: [number, 'null']
-          description: Detector confidence from 0 to 1.
-
-    Error:
+        binding_session_id: { type: string, format: uuid }
+        zone_id: { type: string, format: uuid }
+        zone_version: { type: integer, minimum: 1 }
+        state:
+          type: string
+          enum: [waiting_for_frame, waiting_for_person, collecting, bound, failed, expired, cancelled]
+          description: |
+            Stable presentation state. Mobile maps it to its own localized
+            text and illustration: waiting_for_frame — receiving a camera
+            view; waiting_for_person — ask the person to stand in the marked
+            area; collecting — checking position; bound — success. failed,
+            expired and cancelled finish the setup attempt.
+        started_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        progress: { $ref: '#/components/schemas/ZoneBindingProgress' }
+        binding:
+          oneOf:
+            - $ref: '#/components/schemas/ZoneBinding'
+            - type: 'null'
+        failure:
+          oneOf:
+            - $ref: '#/components/schemas/ZoneBindingFailure'
+            - type: 'null'
+    ZoneBindingProgress:
+      type: object
+      required: [accepted_observations, required_observations, last_observation]
+      properties:
+        accepted_observations:
+          type: integer
+          minimum: 0
+          description: |
+            Technical diagnostic counter. Do not display it as «N of M» to a
+            user; use ZoneBindingSession.state for the user-facing status.
+        required_observations:
+          type: integer
+          minimum: 1
+          description: Technical server configuration, fixed for this session and not a mobile setting.
+        last_observation:
+          oneOf:
+            - $ref: '#/components/schemas/ZoneAnchorObservation'
+            - type: 'null'
+    ZoneAnchorObservation:
+      type: object
+      required: [captured_at, frame_id, media_id, point, quality, in_zone]
+      properties:
+        captured_at: { type: string, format: date-time }
+        frame_id: { type: string, format: uuid }
+        media_id: { type: string, format: uuid }
+        point: { $ref: '#/components/schemas/NormalizedPoint' }
+        quality:
+          type: string
+          enum: [full, degraded]
+          description: degraded means an allowed fallback was used.
+        in_zone:
+          type: boolean
+          description: |
+            Authoritative server point-in-polygon result. While a session is
+            non-terminal, false means the UI keeps the setup open and asks the
+            person to make a step into the highlighted area; it is not a
+            failed setup result.
+    NormalizedPoint:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number, minimum: 0, maximum: 1 }
+        y: { type: number, minimum: 0, maximum: 1 }
+    ZoneBinding:
+      type: object
+      required: [binding_id, zone_id, zone_version, bound_at, validated_frame_id, accepted_observations, evaluator_version]
+      properties:
+        binding_id: { type: string, format: uuid }
+        zone_id: { type: string, format: uuid }
+        zone_version: { type: integer, minimum: 1 }
+        bound_at: { type: string, format: date-time }
+        validated_frame_id: { type: string, format: uuid }
+        accepted_observations: { type: integer, minimum: 1 }
+        evaluator_version: { type: string }
+    ZoneBindingFailure:
       type: object
       required: [code, message]
       properties:
         code:
           type: string
-          description: Stable machine-readable application error code.
-        message:
-          type: string
-          description: Human-readable error explanation.
-
-    RequestValidationError:
+          enum: [camera_unavailable, no_person_detected, no_reliable_support_point, insufficient_inside_observations, zone_version_changed]
+        message: { type: string }
+    Error:
       type: object
-      required: [detail]
+      required: [code, message]
       properties:
-        detail:
-          type: array
-          items:
-            type: object
-            required: [loc, msg, type]
-            properties:
-              loc:
-                type: array
-                items:
-                  type: [string, integer]
-              msg:
-                type: string
-              type:
-                type: string
-            additionalProperties: true
+        code: { type: string }
+        message: { type: string }
