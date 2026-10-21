@@ -57,7 +57,7 @@ class ErrorMapper @Inject constructor(private val json: Json) {
         }
     }
 
-    /** Коды выписаны из `server/src/terentiy_server/application/services.py`. */
+    /** Коды выписаны из модулей `server/src/terentiy_server/application` (terentiy_ai, коммит 712afd2). */
     private fun byCode(code: String): AppError? = when (code) {
         "invalid_installation_code" -> AppError.InvalidInstallationCode
         "device_already_activated" -> AppError.DeviceAlreadyActivated
@@ -72,7 +72,8 @@ class ErrorMapper @Inject constructor(private val json: Json) {
         "zone_version_conflict" -> AppError.ZoneConflict
         "zone_binding_in_progress" -> AppError.ZoneBusy
         "zone_limit_reached" -> AppError.ZoneLimit
-        "invalid_zone", "invalid_reference_frame" -> AppError.Validation(null)
+        "invalid_reference_frame" -> AppError.ZoneFrameOutdated
+        "invalid_zone" -> AppError.Validation(null)
         else -> null
     }
 

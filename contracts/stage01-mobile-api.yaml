@@ -1,13 +1,17 @@
 # ВНИМАНИЕ: синхронизированная копия. Оригинал принадлежит репозиторию terentiy_ai.
 # Источник: terentiy_ai/contracts/openapi/mobile-server.openapi.yaml
-# Коммит источника: a6c5b22 (2026-10-12), версия 2.0.0-draft — критические зоны.
-# Синхронизировано: 2026-10-13
+# Коммит источника: 712afd2 (2026-10-16), версия 2.0.0-draft — критические зоны.
+# Синхронизировано: 2026-10-21
 # Правки вносятся в terentiy_ai и переносятся сюда целиком, а не наоборот.
 #
 # Черновик описывает только зоны. Маршруты падений (/api/v1/events и др.) в
 # нём не перечислены, но на сервере работают как в 1.0.0 — приложение их
-# использует без изменений. Из маршрутов зон на сервере пока реализован только
-# current-frame; остальные делает автор backend.
+# использует без изменений. Все маршруты зон на сервере реализованы; сессии
+# привязки (binding-sessions) приложение пока не вызывает.
+#
+# Не описано в контракте, но проверяется сервером: reference_frame_id при
+# создании и правке зоны должен быть текущим кадром камеры — не старше
+# server.agent_offline_after_seconds (30 с), иначе 422 invalid_reference_frame.
 
 openapi: 3.1.0
 info:
@@ -482,7 +486,7 @@ components:
         reference_media_id: { type: string, format: uuid }
         state:
           type: string
-          enum: [draft, binding, bound, needs_rebinding]
+          enum: [draft, binding, bound]
         version: { type: integer, minimum: 1 }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }

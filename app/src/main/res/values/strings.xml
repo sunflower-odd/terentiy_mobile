@@ -159,10 +159,10 @@
     <string name="zone_state_draft">Ещё не проверена</string>
     <string name="zone_state_binding">Проверяется</string>
     <string name="zone_state_bound">Проверена</string>
-    <string name="zone_state_needs_rebinding">Нужно проверить заново</string>
     <string name="error_zone_conflict">Зону уже изменили на другом устройстве. Откройте её заново.</string>
     <string name="error_zone_busy">Зону сейчас проверяют — изменить её пока нельзя.</string>
     <string name="error_zone_limit">Можно добавить не больше 10 зон.</string>
+    <string name="error_zone_frame_outdated">Вид с камеры устарел. Обновите вид и сохраните зону ещё раз.</string>
     <string name="error_zones_unsupported">Сервер пока не умеет хранить зоны.</string>
     <string name="zone_cancel">Отмена</string>
     <string name="zones_empty">Отметьте места, за которыми нужно присматривать: окно, плиту, входную дверь. Сначала получите вид с камеры, затем добавьте зону.</string>

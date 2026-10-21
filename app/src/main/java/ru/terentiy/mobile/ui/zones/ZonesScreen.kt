@@ -374,7 +374,6 @@ private fun ZoneState.textRes(): Int = when (this) {
     ZoneState.DRAFT -> R.string.zone_state_draft
     ZoneState.BINDING -> R.string.zone_state_binding
     ZoneState.BOUND -> R.string.zone_state_bound
-    ZoneState.NEEDS_REBINDING -> R.string.zone_state_needs_rebinding
 }
 
 private fun DrawScope.drawZone(points: List<ZonePoint>, color: Color, filled: Boolean) {

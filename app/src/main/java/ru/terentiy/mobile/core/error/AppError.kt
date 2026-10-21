@@ -66,6 +66,12 @@ sealed class AppError : Exception() {
     /** У камеры уже максимум зон. */
     data object ZoneLimit : AppError()
 
+    /**
+     * Сервер не принял кадр, на котором нарисована зона: он уже не текущий.
+     * Сервер принимает только свежий кадр камеры (`agent_offline_after_seconds`, 30 с).
+     */
+    data object ZoneFrameOutdated : AppError()
+
     /** На сервере ещё нет маршрутов зон. */
     data object ZonesUnsupported : AppError()
 

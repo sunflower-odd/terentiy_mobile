@@ -69,6 +69,14 @@ class ErrorMapperTest {
     }
 
     @Test
+    fun `устаревший кадр зоны — отдельная ошибка, а не общая валидация`() {
+        assertEquals(
+            AppError.ZoneFrameOutdated,
+            mapper.map(httpError(422, """{"code":"invalid_reference_frame","message":"reference_frame_id is not a current frame of this camera"}""")),
+        )
+    }
+
+    @Test
     fun `прикладной отказ валидации приходит с кодом`() {
         assertTrue(
             mapper.map(httpError(422, """{"code":"invalid_activation","message":"PIN must contain six digits"}"""))

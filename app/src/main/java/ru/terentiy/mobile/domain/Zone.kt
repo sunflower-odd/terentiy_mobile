@@ -29,8 +29,7 @@ data class ZonePoint(val x: Float, val y: Float)
 enum class ZoneState(val wire: String) {
     DRAFT("draft"),
     BINDING("binding"),
-    BOUND("bound"),
-    NEEDS_REBINDING("needs_rebinding");
+    BOUND("bound");
 
     companion object {
         fun parse(raw: String?): ZoneState = entries.firstOrNull { it.wire == raw } ?: DRAFT

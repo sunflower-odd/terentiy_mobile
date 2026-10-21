@@ -17,11 +17,13 @@ import ru.terentiy.mobile.core.error.messageRes
 import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.data.repository.ZonesRepository
+import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.Zone
 import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.ZoneGeometry
 import ru.terentiy.mobile.domain.ZonePoint
+import timber.log.Timber
 
 /** Зона, которую сейчас рисуют. [id] и [version] — `null` у новой зоны. */
 data class EditedZone(
@@ -144,7 +146,8 @@ class ZonesViewModel @Inject constructor(
 
     /**
      * Изменить зону. Контур нарисован на её кадре — он и показывается, чтобы
-     * вершины легли туда же. «Обновить вид» заменит кадр на свежий.
+     * вершины легли туда же. «Обновить вид» заменит кадр на свежий; при
+     * сохранении свежий кадр берётся в любом случае (см. [save]).
      */
     fun edit(zoneId: String) {
         val zone = _state.value.zones.firstOrNull { it.id == zoneId } ?: return
@@ -204,10 +207,17 @@ class ZonesViewModel @Inject constructor(
             _state.update { it.copy(problemRes = problem) }
             return
         }
-        val draft = ZoneDraft(name = edited.name, polygon = edited.points, referenceFrameId = state.frameId!!)
         _state.update { it.copy(saving = true, errorRes = null) }
         viewModelScope.launch {
             try {
+                // Сервер принимает `reference_frame_id` только от текущего кадра
+                // камеры (не старше 30 с) — и при создании, и при правке. Кадр,
+                // на котором рисовали, к этому моменту обычно уже старый, а у
+                // правки это вообще кадр, на котором зону создали. Камера
+                // неподвижна, а вершины заданы в долях кадра, поэтому контур
+                // переносится на свежий кадр без пересчёта.
+                val fresh = zonesRepository.currentFrame(agent, camera)
+                val draft = ZoneDraft(name = edited.name, polygon = edited.points, referenceFrameId = fresh.frameId)
                 if (edited.id == null || edited.version == null) {
                     zonesRepository.create(agent, camera, draft)
                 } else {
@@ -215,9 +225,24 @@ class ZonesViewModel @Inject constructor(
                 }
                 val zones = zonesRepository.zones(agent, camera)
                 _state.update { it.copy(saving = false, edited = null, zones = zones) }
+                showFrame(fresh)
             } catch (error: AppError) {
                 _state.update { it.copy(saving = false, errorRes = error.messageRes()) }
             }
+        }
+    }
+
+    /**
+     * Показать кадр, к которому сервер привязал зону. Не обязательно для
+     * сохранения: если картинка не загрузилась, остаётся прежний вид.
+     */
+    private suspend fun showFrame(frame: CurrentFrame) {
+        if (_state.value.frameId == frame.frameId) return
+        try {
+            val bytes = image(frame.mediaId)
+            _state.update { it.copy(frame = bytes, frameId = frame.frameId, frameCapturedAt = frame.capturedAt) }
+        } catch (error: AppError) {
+            Timber.w("Свежий кадр зоны не загрузился | ошибка=%s", error)
         }
     }
 
