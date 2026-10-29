@@ -28,17 +28,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import ru.terentiy.mobile.R
 import ru.terentiy.mobile.core.time.TimeFormat
-import ru.terentiy.mobile.domain.Tri
 import ru.terentiy.mobile.domain.WatchState
 import ru.terentiy.mobile.ui.common.AlertCard
 import ru.terentiy.mobile.ui.common.HeroMood
-import ru.terentiy.mobile.ui.common.IconVideoCam
-import ru.terentiy.mobile.ui.common.IconWifi
 import ru.terentiy.mobile.ui.common.MessageBanner
 import ru.terentiy.mobile.ui.common.SecondaryButton
 import ru.terentiy.mobile.ui.common.StatusHero
-import ru.terentiy.mobile.ui.common.StatusMark
-import ru.terentiy.mobile.ui.common.StatusRow
 
 @Composable
 fun HomeScreen(
@@ -114,7 +109,6 @@ fun HomeContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            if (state.offline) MessageBanner(text = stringResource(R.string.home_offline_banner))
             state.errorRes?.let { MessageBanner(text = stringResource(it)) }
 
             state.alert?.let { alert ->
@@ -148,75 +142,18 @@ fun HomeContent(
             )
 
             val agent = state.agent
-            if (agent == null) {
+            if (state.watchState == WatchState.NO_AGENT) {
                 MessageBanner(
                     text = stringResource(R.string.home_no_agent),
                     container = MaterialTheme.colorScheme.surfaceVariant,
                     content = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            } else {
+            } else if (agent != null) {
                 Text(
                     text = agent.name,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
-
-                Spacer(Modifier.height(2.dp))
-
-                StatusRow(
-                    icon = IconVideoCam,
-                    label = stringResource(agent.cameraConnected.cameraLabelRes()),
-                    mark = agent.cameraConnected.mark(),
-                )
-                StatusRow(
-                    icon = IconWifi,
-                    label = stringResource(
-                        if (agent.online) R.string.home_agent_online else R.string.home_agent_offline
-                    ),
-                    mark = if (agent.online) StatusMark.OK else StatusMark.BAD,
-                )
-                StatusRow(
-                    icon = IconVideoCam,
-                    label = stringResource(agent.streamActive.streamLabelRes()),
-                    mark = if (agent.streamActive == Tri.YES && state.watchState != WatchState.FRAMES_DELAYED) {
-                        StatusMark.OK
-                    } else {
-                        agent.streamActive.mark()
-                    },
-                )
-
-                // Очередь показывается только когда в ней что-то есть: строка
-                // «Очередь: 0» тратит внимание ни на что.
-                agent.queueSize?.takeIf { it > 0 }?.let { queue ->
-                    StatusRow(
-                        icon = IconVideoCam,
-                        label = stringResource(R.string.home_queue, queue),
-                        mark = if (state.watchState == WatchState.FRAMES_DELAYED) {
-                            StatusMark.BAD
-                        } else {
-                            StatusMark.UNKNOWN
-                        },
-                    )
-                }
-
-                Spacer(Modifier.height(2.dp))
-
-                // Две строки, отвечающие на вопрос «эти данные вообще свежие?».
-                // Без них экран выглядит как живая картина, хотя это срез.
-                agent.lastFrameAt?.let {
-                    Text(
-                        text = stringResource(R.string.home_last_frame, TimeFormat.smart(it)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                agent.reportedAt?.let {
-                    Text(
-                        text = stringResource(R.string.home_reported_at, TimeFormat.smart(it)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
 
             Spacer(Modifier.height(4.dp))

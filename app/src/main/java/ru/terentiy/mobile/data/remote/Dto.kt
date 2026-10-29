@@ -52,33 +52,13 @@ data class AgentListDto(
     val items: List<AgentDto> = emptyList(),
 )
 
-/**
- * Состояние агента.
- *
- * Все `Boolean?` и `Int?` обязаны иметь значение по умолчанию `null` и не иметь
- * ненулевого default: в `AppModule` включён `coerceInputValues`, и при ненулевом
- * default явный `null` из ответа молча превратился бы в это значение. Нам нужен
- * именно `null` — он означает «агент ни разу не отчитывался».
- *
- * У `online` default ненулевой сознательно: поле в контракте обязательное и
- * не nullable, а если сервер однажды пришлёт `null`, безопаснее считать агента
- * недоступным, чем уронить разбор всего списка.
- */
+/** Агент в ответе `GET /api/v1/agents` (контракт 2.0.0-draft). */
 @Serializable
 data class AgentDto(
-    val id: String,
-    @SerialName("household_id") val householdId: String = "",
+    @SerialName("agent_id") val id: String,
     val name: String = "",
     @SerialName("camera_id") val cameraId: String = "",
-    @SerialName("software_version") val softwareVersion: String = "",
-    @SerialName("created_at") val createdAt: String? = null,
     val online: Boolean = false,
-    @SerialName("reported_at") val reportedAt: String? = null,
-    @SerialName("agent_online") val agentOnline: Boolean? = null,
-    @SerialName("camera_connected") val cameraConnected: Boolean? = null,
-    @SerialName("stream_active") val streamActive: Boolean? = null,
-    @SerialName("queue_size") val queueSize: Int? = null,
-    @SerialName("last_frame_at") val lastFrameAt: String? = null,
 )
 
 @Serializable

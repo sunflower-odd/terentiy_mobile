@@ -289,23 +289,7 @@ val IconWarning: ImageVector by lazy {
     }
 }
 
-/** Галочка: состояние в норме. */
-val IconCheck: ImageVector by lazy {
-    icon("Check") {
-        path(
-            stroke = Black,
-            strokeLineWidth = 2.5f,
-            strokeLineCap = StrokeCap.Round,
-            strokeLineJoin = StrokeJoin.Round,
-        ) {
-            moveTo(5f, 12.5f)
-            lineTo(9.5f, 17f)
-            lineTo(19f, 7f)
-        }
-    }
-}
-
-/** Крестик: состояние не в норме, закрытие баннера. */
+/** Крестик: закрытие баннера. */
 val IconClose: ImageVector by lazy {
     icon("Close") {
         path(stroke = Black, strokeLineWidth = 2.5f, strokeLineCap = StrokeCap.Round) {

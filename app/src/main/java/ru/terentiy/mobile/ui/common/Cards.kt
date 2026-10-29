@@ -21,64 +21,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
-/** Как выглядит правая отметка в строке состояния. */
-enum class StatusMark { OK, BAD, UNKNOWN }
-
-/**
- * Строка состояния из макетов: иконка в цветном кружке, подпись, отметка справа.
- *
- * Три варианта отметки, а не два: «неизвестно» намеренно отличается и от нормы,
- * и от отказа — агент, который ни разу не выходил на связь, не то же самое, что
- * агент с выключенной камерой.
- */
-@Composable
-fun StatusRow(
-    icon: ImageVector,
-    label: String,
-    mark: StatusMark,
-    modifier: Modifier = Modifier,
-) {
-    val markColor = when (mark) {
-        StatusMark.OK -> MaterialTheme.colorScheme.secondary
-        StatusMark.BAD -> MaterialTheme.colorScheme.error
-        StatusMark.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            IconBadge(icon = icon, container = MaterialTheme.colorScheme.primaryContainer, tint = MaterialTheme.colorScheme.primary)
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            Surface(shape = CircleShape, color = markColor, modifier = Modifier.size(26.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = when (mark) {
-                            StatusMark.OK -> IconCheck
-                            StatusMark.BAD -> IconClose
-                            StatusMark.UNKNOWN -> IconWarning
-                        },
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
 /** Круглая подложка под иконку — повторяющийся мотив всех макетов. */
 @Composable
 fun IconBadge(

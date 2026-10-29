@@ -21,7 +21,6 @@ import ru.terentiy.mobile.domain.EventStatus
 import ru.terentiy.mobile.domain.FallAnalysis
 import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.Session
-import ru.terentiy.mobile.domain.Tri
 import timber.log.Timber
 
 /**
@@ -40,18 +39,9 @@ fun MobileTokenDto.toDomain(): Session = Session(
 
 fun AgentDto.toDomain(): Agent = Agent(
     id = id,
-    householdId = householdId,
     name = name,
     cameraId = cameraId,
-    softwareVersion = softwareVersion,
-    createdAt = createdAt.toInstantOrNull(),
     online = online,
-    agentOnline = Tri.of(agentOnline),
-    cameraConnected = Tri.of(cameraConnected),
-    streamActive = Tri.of(streamActive),
-    queueSize = queueSize,
-    reportedAt = reportedAt.toInstantOrNull(),
-    lastFrameAt = lastFrameAt.toInstantOrNull(),
 )
 
 fun AgentListDto.toDomain(): List<Agent> = items.map { it.toDomain() }

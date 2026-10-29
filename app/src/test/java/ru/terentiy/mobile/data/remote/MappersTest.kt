@@ -9,7 +9,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.terentiy.mobile.domain.EventStatus
-import ru.terentiy.mobile.domain.Tri
 
 /**
  * Граница между формой ответа сервера и доменной моделью.
@@ -36,44 +35,16 @@ class MappersTest {
     }
 
     @Test
-    fun `агент разбирается целиком`() {
-        val agent = AgentDto(
-            id = "agent-1",
-            householdId = "house-1",
-            name = "Гостиная",
-            cameraId = "camera-1",
-            softwareVersion = "1.0.0",
-            createdAt = "2026-09-20T10:00:00Z",
-            online = true,
-            reportedAt = "2026-09-30T12:00:00Z",
-            agentOnline = true,
-            cameraConnected = true,
-            streamActive = true,
-            queueSize = 0,
-            lastFrameAt = "2026-09-30T11:59:58Z",
-        ).toDomain()
+    fun `агент разбирается, свежесть кадра по умолчанию не подтверждена`() {
+        val agent = AgentDto(id = "agent-1", name = "Гостиная", cameraId = "camera-1", online = true).toDomain()
 
         assertEquals("agent-1", agent.id)
         assertEquals("Гостиная", agent.name)
+        assertEquals("camera-1", agent.cameraId)
         assertEquals(true, agent.online)
-        assertEquals(Tri.YES, agent.cameraConnected)
-        assertEquals(0, agent.queueSize)
-        assertEquals(Instant.parse("2026-09-30T12:00:00Z"), agent.reportedAt)
-    }
-
-    @Test
-    fun `null в полях агента означает «неизвестно», а не «нет»`() {
-        // Сервер отдаёт null, пока агент ни разу не присылал heartbeat. Схлопнуть
-        // это в false значило бы показать «камера недоступна» вместо «данных нет».
-        val agent = AgentDto(id = "agent-1").toDomain()
-
-        assertEquals(Tri.UNKNOWN, agent.agentOnline)
-        assertEquals(Tri.UNKNOWN, agent.cameraConnected)
-        assertEquals(Tri.UNKNOWN, agent.streamActive)
-        assertNull(agent.queueSize)
-        assertNull(agent.reportedAt)
-        assertNull(agent.lastFrameAt)
-        assertTrue(agent.neverReported)
+        // Свежесть кадра проверяет репозиторий отдельным запросом: пока он её
+        // не подтвердил, «наблюдение работает» показывать нельзя.
+        assertEquals(false, agent.hasFreshFrame)
     }
 
     @Test
@@ -185,8 +156,5 @@ class MappersTest {
         assertNull("".toInstantOrNull())
         assertNull(null.toInstantOrNull())
 
-        val agent = AgentDto(id = "a", online = true, reportedAt = "не время").toDomain()
-        assertNull(agent.reportedAt)
-        assertEquals(true, agent.online)
     }
 }

@@ -19,7 +19,6 @@ import retrofit2.Retrofit
 import ru.terentiy.mobile.core.error.AppError
 import ru.terentiy.mobile.core.error.ErrorMapper
 import ru.terentiy.mobile.core.network.apiCall
-import ru.terentiy.mobile.domain.Tri
 
 /**
  * Проверка мобильных маршрутов на телах той формы, которую описывает
@@ -137,42 +136,14 @@ class TerentiyApiContractTest {
     }
 
     @Test
-    fun `список агентов разбирается, включая полностью неизвестное состояние`() = runTest {
+    fun `список агентов разбирается по контракту 2_0_0-draft`() = runTest {
         respond(
             200,
             """
             {
               "items": [
-                {
-                  "id": "agent-1",
-                  "household_id": "house-1",
-                  "name": "Гостиная",
-                  "camera_id": "camera-1",
-                  "software_version": "1.0.0",
-                  "created_at": "2026-09-20T10:00:00Z",
-                  "reported_at": "2026-09-30T12:00:00Z",
-                  "agent_online": true,
-                  "camera_connected": true,
-                  "stream_active": true,
-                  "queue_size": 0,
-                  "last_frame_at": "2026-09-30T11:59:58Z",
-                  "online": true
-                },
-                {
-                  "id": "agent-2",
-                  "household_id": "house-1",
-                  "name": "Спальня",
-                  "camera_id": "camera-2",
-                  "software_version": "1.0.0",
-                  "created_at": "2026-09-21T10:00:00Z",
-                  "reported_at": null,
-                  "agent_online": null,
-                  "camera_connected": null,
-                  "stream_active": null,
-                  "queue_size": null,
-                  "last_frame_at": null,
-                  "online": false
-                }
+                {"agent_id": "agent-1", "name": "Гостиная", "camera_id": "camera-1", "online": true},
+                {"agent_id": "agent-2", "name": "Спальня", "camera_id": "camera-2", "online": false}
               ]
             }
             """.trimIndent()
@@ -181,14 +152,9 @@ class TerentiyApiContractTest {
         val agents = api.agents().toDomain()
 
         assertEquals("/api/v1/agents", server.takeRequest().path)
-        assertEquals(2, agents.size)
-        assertEquals(Tri.YES, agents[0].cameraConnected)
-        // Явный null обязан остаться null, несмотря на coerceInputValues: иначе
-        // «данных нет» превратилось бы в «камера не работает».
-        assertEquals(Tri.UNKNOWN, agents[1].cameraConnected)
-        assertEquals(Tri.UNKNOWN, agents[1].agentOnline)
-        assertNull(agents[1].queueSize)
-        assertNull(agents[1].reportedAt)
+        assertEquals(listOf("agent-1", "agent-2"), agents.map { it.id })
+        assertEquals("camera-1", agents[0].cameraId)
+        assertEquals(true, agents[0].online)
         assertEquals(false, agents[1].online)
     }
 
@@ -196,7 +162,7 @@ class TerentiyApiContractTest {
     fun `неизвестное поле в ответе не роняет разбор`() = runTest {
         respond(
             200,
-            """{"items":[{"id":"agent-1","online":true,"unexpected_field":"что-то новое"}]}""",
+            """{"items":[{"agent_id":"agent-1","online":true,"unexpected_field":"что-то новое"}]}""",
         )
 
         assertEquals(1, api.agents().toDomain().size)

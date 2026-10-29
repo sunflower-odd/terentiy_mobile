@@ -132,7 +132,23 @@ class NetworkAgentsRepository @Inject constructor(
     private val authorized: AuthorizedCall,
 ) : AgentsRepository {
 
-    override suspend fun agents(): List<Agent> = authorized { api.agents().toDomain() }
+    override suspend fun agents(): List<Agent> = authorized {
+        api.agents().toDomain().map { agent ->
+            if (agent.online) agent.copy(hasFreshFrame = hasFreshFrame(agent)) else agent
+        }
+    }
+
+    /**
+     * Свежий кадр есть, если `current-frame` отдал кадр. `camera_unavailable` —
+     * кадров нет; остальные ошибки уходят наверх как ошибка опроса.
+     */
+    private suspend fun hasFreshFrame(agent: Agent): Boolean = try {
+        authorized { api.currentFrame(agent.id, agent.cameraId) }
+        true
+    } catch (error: AppError) {
+        if (error != AppError.CameraUnavailable) throw error
+        false
+    }
 }
 
 @Singleton

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import ru.terentiy.mobile.core.error.AppError
 import ru.terentiy.mobile.core.error.messageRes
 import ru.terentiy.mobile.data.local.AppSettings
 import ru.terentiy.mobile.data.repository.AgentsFeed
@@ -21,6 +22,10 @@ import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.WatchState
 import ru.terentiy.mobile.domain.WatchStatus
 
+/** Ошибка, после которой о состоянии наблюдения ничего не известно: нет связи или сервер сломан. */
+private fun AppError?.isServerUnreachable(): Boolean =
+    this == AppError.Network || (this is AppError.Server && status >= 500)
+
 data class HomeUiState(
     val userName: String = "",
     val agents: List<Agent> = emptyList(),
@@ -28,7 +33,6 @@ data class HomeUiState(
     val unseenCount: Int = 0,
     val alert: FallEvent? = null,
     val firstLoad: Boolean = true,
-    val offline: Boolean = false,
     @param:StringRes val errorRes: Int? = null,
 ) {
     val agent: Agent? get() = agents.firstOrNull()
@@ -57,18 +61,18 @@ class HomeViewModel @Inject constructor(
         settings.userName,
         dismissed,
     ) { agents, events, userName, dismissedId ->
+        // Сервер недоступен — это состояние наблюдения, а не отдельная ошибка:
+        // его показывает сам статус, баннер его бы только повторял.
+        val serverReachable = !agents.error.isServerUnreachable()
         HomeUiState(
             userName = userName,
             agents = agents.agents,
-            watchState = WatchStatus.worstOf(agents.agents),
+            watchState = WatchStatus.of(agents.agents, serverReachable),
             unseenCount = events.unseenCount,
             alert = events.latestUnseen?.takeIf { it.id != dismissedId },
             firstLoad = agents.firstLoad,
-            offline = agents.offline || events.offline,
-            // Ошибка агентов важнее: главный экран про состояние контура, а не
-            // про историю. Пока есть что показать, ошибка не затирает данные.
-            errorRes = (agents.error ?: events.error)
-                ?.takeIf { agents.agents.isEmpty() }
+            errorRes = agents.error
+                ?.takeIf { serverReachable && agents.agents.isEmpty() }
                 ?.messageRes(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())

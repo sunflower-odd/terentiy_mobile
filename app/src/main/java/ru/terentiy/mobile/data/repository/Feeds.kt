@@ -190,11 +190,9 @@ data class AgentsFeedState(
     val firstLoad: Boolean = true,
     val error: AppError? = null,
     val loadedAt: Instant? = null,
-) {
-    val offline: Boolean get() = error == AppError.Network && agents.isNotEmpty()
-}
+)
 
-/** Лента агентов: состояние контура наблюдения на главном экране. */
+/** Лента агентов: состояние наблюдения на главном экране. */
 @Singleton
 class AgentsFeed @Inject constructor(
     private val agents: AgentsRepository,

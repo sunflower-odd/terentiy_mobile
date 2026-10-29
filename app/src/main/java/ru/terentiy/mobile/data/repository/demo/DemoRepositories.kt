@@ -33,7 +33,6 @@ import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.Session
 import ru.terentiy.mobile.domain.SessionState
-import ru.terentiy.mobile.domain.Tri
 
 /**
  * Сценарий демонстрации.
@@ -42,19 +41,16 @@ import ru.terentiy.mobile.domain.Tri
  * приложение может пролежать свёрнутым, и сценарий должен соответствовать
  * настоящим часам, а не количеству чтений.
  *
- * Шкала подобрана так, чтобы за минуту показать **всю** матрицу состояний
- * контура — прежний демо-сценарий этого не умел, у него была одна пара
- * «камера подключена / агент на связи»:
+ * За минуту сценарий показывает все состояния наблюдения, которые может
+ * показать демо («Сервер недоступен» изображать нечем — сервера в демо нет):
  *
  * | Время | Что видно |
  * |---|---|
- * | 0–3 с | агент ни разу не отчитался: «состояние неизвестно» |
- * | 3–23 с | наблюдение работает |
+ * | 0–35 с | наблюдение работает |
  * | 23 с | появляется событие падения с кадром |
- * | 35–45 с | очередь кадров растёт, кадры отстают |
- * | 45–52 с | камера недоступна |
- * | 52–58 с | агент не отвечает |
- * | далее | цикл с отметки 3 с |
+ * | 35–49 с | камера недоступна |
+ * | 49–55 с | устройство наблюдения не отвечает |
+ * | далее | цикл с начала |
  *
  * Промежуточные состояния «включаем» и «выключаем» не изображаются: они были
  * состояниями асинхронной доставки команды, а команд в реализованном контракте
@@ -84,40 +80,10 @@ class DemoScenario @Inject constructor() {
     }
 
     suspend fun agent(): Agent = mutex.withLock {
-        val elapsed = elapsedSeconds()
-        val now = Instant.now()
-
-        if (elapsed < UNKNOWN_UNTIL) {
-            return@withLock template.copy(
-                online = false,
-                agentOnline = Tri.UNKNOWN,
-                cameraConnected = Tri.UNKNOWN,
-                streamActive = Tri.UNKNOWN,
-                queueSize = null,
-                reportedAt = null,
-                lastFrameAt = null,
-            )
-        }
-
-        when (val phase = (elapsed - UNKNOWN_UNTIL) % CYCLE) {
-            in 0 until FRAMES_DELAYED_AT -> healthy(now)
-
-            in FRAMES_DELAYED_AT until CAMERA_LOST_AT -> healthy(now).copy(
-                queueSize = 24,
-                lastFrameAt = now.minusSeconds(90),
-            )
-
-            in CAMERA_LOST_AT until AGENT_LOST_AT -> healthy(now).copy(
-                cameraConnected = Tri.NO,
-                streamActive = Tri.NO,
-                lastFrameAt = now.minusSeconds(phase - CAMERA_LOST_AT + 5),
-            )
-
-            else -> healthy(now).copy(
-                online = false,
-                reportedAt = now.minusSeconds(60),
-                lastFrameAt = now.minusSeconds(62),
-            )
+        when (elapsedSeconds() % CYCLE) {
+            in 0 until CAMERA_LOST_AT -> template
+            in CAMERA_LOST_AT until AGENT_LOST_AT -> template.copy(hasFreshFrame = false)
+            else -> template.copy(online = false, hasFreshFrame = false)
         }
     }
 
@@ -137,16 +103,6 @@ class DemoScenario @Inject constructor() {
         }
         generated + historical()
     }
-
-    private fun healthy(now: Instant): Agent = template.copy(
-        online = true,
-        agentOnline = Tri.YES,
-        cameraConnected = Tri.YES,
-        streamActive = Tri.YES,
-        queueSize = 0,
-        reportedAt = now,
-        lastFrameAt = now.minusSeconds(2),
-    )
 
     private fun historical(): List<FallEvent> = listOf(
         event(
@@ -190,18 +146,10 @@ class DemoScenario @Inject constructor() {
 
     private val template = Agent(
         id = AGENT_ID,
-        householdId = HOUSEHOLD_ID,
         name = AGENT_NAME,
         cameraId = "demo-camera-1",
-        softwareVersion = "demo",
-        createdAt = Instant.now().minus(Duration.ofDays(11)),
-        online = false,
-        agentOnline = Tri.UNKNOWN,
-        cameraConnected = Tri.UNKNOWN,
-        streamActive = Tri.UNKNOWN,
-        queueSize = null,
-        reportedAt = null,
-        lastFrameAt = null,
+        online = true,
+        hasFreshFrame = true,
     )
 
     companion object {
@@ -212,10 +160,8 @@ class DemoScenario @Inject constructor() {
         const val DEMO_CLIP_MEDIA_ID = "demo-clip"
         const val DEMO_EVENT_ID = "demo-event-fresh"
 
-        private const val UNKNOWN_UNTIL = 3L
         private const val EVENT_AT = 23L
-        private const val FRAMES_DELAYED_AT = 32L
-        private const val CAMERA_LOST_AT = 42L
+        private const val CAMERA_LOST_AT = 35L
         private const val AGENT_LOST_AT = 49L
         private const val CYCLE = 55L
 

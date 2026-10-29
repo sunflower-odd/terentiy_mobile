@@ -54,6 +54,7 @@ interface AuthRepository {
 }
 
 interface AgentsRepository {
+    /** Агенты дома; у агентов на связи заполнено [Agent.hasFreshFrame]. */
     suspend fun agents(): List<Agent>
 }
 
