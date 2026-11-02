@@ -145,6 +145,7 @@ data class ZoneBindingSessionDto(
     @SerialName("zone_id") val zoneId: String = "",
     @SerialName("zone_version") val zoneVersion: Int = 0,
     val state: String = "",
+    @SerialName("started_at") val startedAt: String? = null,
     @SerialName("expires_at") val expiresAt: String? = null,
     val progress: ZoneBindingProgressDto? = null,
     val failure: ZoneBindingFailureDto? = null,

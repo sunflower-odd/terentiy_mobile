@@ -47,6 +47,7 @@ data class ZoneBindingSession(
     val zoneId: String,
     val zoneVersion: Int,
     val state: ZoneBindingState,
+    val startedAt: Instant?,
     val expiresAt: Instant?,
     val observation: ZoneObservation?,
     val failure: ZoneBindingFailure?,

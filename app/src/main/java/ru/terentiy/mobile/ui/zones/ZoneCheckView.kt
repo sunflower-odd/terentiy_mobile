@@ -17,18 +17,26 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import ru.terentiy.mobile.R
 import ru.terentiy.mobile.domain.ZoneBindingFailure
 import ru.terentiy.mobile.domain.ZoneBindingState
@@ -97,9 +105,16 @@ internal fun ZoneCheckView(check: ZoneCheck, actions: ZonesActions) {
 /** Кадр проверки: контур зоны и маркер. Маркер в зоне — цветом зоны, вне её — цветом ошибки. */
 @Composable
 private fun CheckFrame(check: ZoneCheck) {
-    val bitmap = remember(check.frame) { check.frame?.let { decodeFrame(it, CHECK_FRAME_WIDTH) } }
-    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
-    if (bitmap == null) {
+    // Кадр меняется раз в секунду — распаковка вне основного потока, иначе экран
+    // подтормаживает. Пока новый кадр распаковывается, виден прежний.
+    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(check.frame) {
+        val bytes = check.frame ?: return@LaunchedEffect
+        withContext(Dispatchers.Default) { decodeFrame(bytes, CHECK_FRAME_WIDTH) }?.let { bitmap = it }
+    }
+    val shown = bitmap
+    val maxHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height * 0.6f).toDp() }
+    if (shown == null) {
         Surface(
             shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -115,11 +130,11 @@ private fun CheckFrame(check: ZoneCheck) {
         Box(
             modifier = Modifier
                 .heightIn(max = maxHeight)
-                .aspectRatio(bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1), matchHeightConstraintsFirst = true)
+                .aspectRatio(shown.width.toFloat() / shown.height.coerceAtLeast(1), matchHeightConstraintsFirst = true)
                 .testTag(CHECK_FRAME_TAG),
         ) {
             Image(
-                bitmap = bitmap,
+                bitmap = shown,
                 contentDescription = null,
                 contentScale = ContentScale.FillBounds,
                 filterQuality = FilterQuality.Medium,

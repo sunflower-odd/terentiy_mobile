@@ -108,6 +108,7 @@ fun ZoneBindingSessionDto.toDomain(): ZoneBindingSession = ZoneBindingSession(
     zoneId = zoneId,
     zoneVersion = zoneVersion,
     state = ZoneBindingState.parse(state),
+    startedAt = startedAt.toInstantOrNull(),
     expiresAt = expiresAt.toInstantOrNull(),
     observation = progress?.lastObservation?.let { observation ->
         val point = observation.point ?: return@let null

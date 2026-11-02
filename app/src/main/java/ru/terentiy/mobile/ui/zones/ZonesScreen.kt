@@ -40,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -50,8 +51,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -91,6 +92,10 @@ fun ZonesScreen(
             clearPoints = viewModel::clearPoints,
             save = viewModel::save,
             delete = viewModel::delete,
+            startCheck = viewModel::startCheck,
+            cancelCheck = viewModel::cancelCheck,
+            closeCheck = viewModel::closeCheck,
+            retryCheck = viewModel::retryCheck,
         ),
     )
 }
@@ -108,6 +113,10 @@ class ZonesActions(
     val clearPoints: () -> Unit = {},
     val save: () -> Unit = {},
     val delete: () -> Unit = {},
+    val startCheck: (String) -> Unit = {},
+    val cancelCheck: () -> Unit = {},
+    val closeCheck: () -> Unit = {},
+    val retryCheck: () -> Unit = {},
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -117,13 +126,21 @@ fun ZonesContent(
     onBack: () -> Unit,
     actions: ZonesActions,
 ) {
+    // Во время проверки «назад» отменяет её, после результата — закрывает.
+    val back: () -> Unit = when {
+        state.check != null -> actions.closeCheck
+        state.editing -> actions.cancelEdit
+        else -> onBack
+    }
+    BackHandler(enabled = state.check != null || state.editing, onBack = back)
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.zones_title)) },
                 navigationIcon = {
-                    IconButton(onClick = if (state.editing) actions.cancelEdit else onBack) {
+                    IconButton(onClick = back) {
                         Icon(imageVector = IconArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
@@ -153,9 +170,14 @@ fun ZonesContent(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 state.errorRes?.let { MessageBanner(text = stringResource(it)) }
-                FrameView(state = state, actions = actions)
-                if (state.editing) EditPanel(state = state, actions = actions)
-                else ZoneList(state = state, actions = actions)
+                val check = state.check
+                if (check != null) {
+                    ZoneCheckView(check = check, actions = actions)
+                } else {
+                    FrameView(state = state, actions = actions)
+                    if (state.editing) EditPanel(state = state, actions = actions)
+                    else ZoneList(state = state, actions = actions)
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -244,7 +266,7 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
 
     // По горизонтали ширина экрана больше высоты, и кадр во всю ширину уходил
     // за нижний край. Высота ограничена, кадр по центру, пропорции те же.
-    val maxFrameHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
+    val maxFrameHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height * 0.6f).toDp() }
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
@@ -310,7 +332,7 @@ private fun ZoneList(state: ZonesUiState, actions: ZonesActions) {
         )
     }
     state.zones.forEach { zone ->
-        ZoneRow(zone = zone, onClick = { actions.edit(zone.id) })
+        ZoneRow(zone = zone, onClick = { actions.edit(zone.id) }, onCheck = { actions.startCheck(zone.id) })
     }
     PrimaryButton(text = stringResource(R.string.zones_add), onClick = actions.startNew, enabled = state.canAdd)
     if (!state.canAdd) {
@@ -323,19 +345,29 @@ private fun ZoneList(state: ZonesUiState, actions: ZonesActions) {
 }
 
 @Composable
-private fun ZoneRow(zone: Zone, onClick: () -> Unit) {
+private fun ZoneRow(zone: Zone, onClick: () -> Unit, onCheck: () -> Unit) {
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text(text = zone.name, style = MaterialTheme.typography.titleMedium)
-            Text(
-                text = stringResource(zone.state.textRes()),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = zone.name, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = stringResource(zone.state.textRes()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // Проверить можно только непроверенную зону: проверенную сервер повторно
+            // не проверяет, а перерисовка сама сбрасывает её в «не проверена».
+            if (zone.state == ZoneState.DRAFT) {
+                TextButton(onClick = onCheck) { Text(stringResource(R.string.zone_check)) }
+            }
         }
     }
 }

@@ -4,8 +4,11 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Duration
 import java.time.Instant
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -50,6 +53,8 @@ data class EditedZone(
  * рисуется поверх него.
  */
 data class ZoneCheck(
+    /** Номер попытки: у повторной проверки той же зоны — новый. */
+    val attempt: Long = 0,
     val zoneId: String,
     val zoneName: String,
     val polygon: List<ZonePoint>,
@@ -63,19 +68,19 @@ data class ZoneCheck(
 ) {
     val running: Boolean get() = errorRes == null && state?.terminal != true
     val bound: Boolean get() = state == ZoneBindingState.BOUND
-    val failed: Boolean get() = !running && !bound
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is ZoneCheck) return false
-        return zoneId == other.zoneId && zoneName == other.zoneName && polygon == other.polygon &&
+        return attempt == other.attempt && zoneId == other.zoneId && zoneName == other.zoneName && polygon == other.polygon &&
             sessionId == other.sessionId && state == other.state && observation == other.observation &&
             failure == other.failure && errorRes == other.errorRes && frameMediaId == other.frameMediaId &&
             (frame?.contentEquals(other.frame) ?: (other.frame == null))
     }
 
     override fun hashCode(): Int {
-        var result = zoneId.hashCode()
+        var result = attempt.hashCode()
+        result = 31 * result + zoneId.hashCode()
         result = 31 * result + (state?.hashCode() ?: 0)
         result = 31 * result + (observation?.hashCode() ?: 0)
         result = 31 * result + (frameMediaId?.hashCode() ?: 0)
@@ -154,6 +159,7 @@ class ZonesViewModel @Inject constructor(
     private var agentId: String? = null
     private var cameraId: String? = null
     private var checkJob: Job? = null
+    private var lastAttempt = 0L
 
     init {
         load()
@@ -299,7 +305,7 @@ class ZonesViewModel @Inject constructor(
             val bytes = image(frame.mediaId)
             _state.update { it.copy(frame = bytes, frameId = frame.frameId, frameCapturedAt = frame.capturedAt) }
         } catch (error: AppError) {
-            Timber.w("Свежий кадр зоны не загрузился | ошибка=%s", error)
+            Timber.w(error, "Свежий кадр зоны не загрузился")
         }
     }
 
@@ -324,8 +330,12 @@ class ZonesViewModel @Inject constructor(
      * Проверка зоны (сессия привязки, mobile-server 2.0.0-draft).
      *
      * Запуск, затем опрос раз в [POLL_INTERVAL_MS], пока сервер не вернёт
-     * конечное состояние. Сервер сам завершает сессию по таймауту (60 с), так
-     * что опрос не бесконечен. Кратковременная потеря сети опрос не обрывает.
+     * конечное состояние. Кратковременная потеря сети опрос не обрывает.
+     * Собственный предел опроса — срок сессии от сервера плюс [DEADLINE_GRACE_MS]:
+     * опрос не бесконечен, даже если сервер сессию не завершит.
+     *
+     * Кадры загружаются параллельно с опросом и не задерживают его. Каждая
+     * попытка получает свой номер: ответы отменённой попытки в новую не попадают.
      */
     fun startCheck(zoneId: String) {
         val agent = agentId ?: return
@@ -334,10 +344,14 @@ class ZonesViewModel @Inject constructor(
         if (state.editing || state.check?.running == true) return
         val zone = state.zones.firstOrNull { it.id == zoneId } ?: return
         val frame = state.frame?.takeIf { state.frameId == zone.referenceFrameId }
-        _state.update { it.copy(check = ZoneCheck(zone.id, zone.name, zone.polygon, frame = frame), errorRes = null) }
+        val attempt = ++lastAttempt
+        _state.update {
+            it.copy(check = ZoneCheck(attempt, zone.id, zone.name, zone.polygon, frame = frame), errorRes = null)
+        }
         checkJob?.cancel()
         checkJob = viewModelScope.launch {
-            if (frame == null) showCheckFrame(zone.referenceMediaId)
+            val frames = FrameLoader(this, attempt)
+            if (frame == null) frames.load(zone.referenceMediaId)
             val job = coroutineContext.job
             // Запуск доводится до конца даже при отмене: иначе сессия на сервере
             // осталась бы без хозяина и держала зону «проверяется» до таймаута.
@@ -348,25 +362,35 @@ class ZonesViewModel @Inject constructor(
                     }
                 }
             } catch (error: AppError) {
-                updateCheck(zone.id) { it.copy(errorRes = error.messageRes()) }
+                coroutineContext.ensureActive()
+                updateCheck(attempt) { it.copy(errorRes = error.messageRes()) }
                 refreshZones()
                 return@launch
             }
             coroutineContext.ensureActive()
-            applySession(zone.id, session)
+            applySession(attempt, session, frames)
+            val maxPolls = maxPolls(session)
+            var polls = 0
             var networkFailures = 0
             while (!session.state.terminal) {
-                delay(POLL_INTERVAL_MS)
+                if (++polls > maxPolls) {
+                    Timber.w("Проверка зоны не завершилась в срок | session=%s | state=%s", session.id, session.state.wire)
+                    cancelOnServer(agent, camera, zone.id, session.id)
+                    updateCheck(attempt) { it.copy(errorRes = R.string.zone_check_failure_unknown) }
+                    refreshZones()
+                    return@launch
+                }
+                delay(POLL_INTERVAL_MS.milliseconds)
                 session = try {
                     zonesRepository.binding(agent, camera, zone.id, session.id).also { networkFailures = 0 }
                 } catch (error: AppError) {
                     if (error == AppError.Network && ++networkFailures < MAX_NETWORK_FAILURES) continue
-                    Timber.w("Опрос проверки зоны прерван | ошибка=%s", error)
-                    updateCheck(zone.id) { it.copy(errorRes = error.messageRes()) }
+                    Timber.w(error, "Опрос проверки зоны прерван")
+                    updateCheck(attempt) { it.copy(errorRes = error.messageRes()) }
                     refreshZones()
                     return@launch
                 }
-                applySession(zone.id, session)
+                applySession(attempt, session, frames)
             }
             Timber.i("Проверка зоны завершена | state=%s | failure=%s", session.state.wire, session.failure)
             refreshZones()
@@ -400,8 +424,8 @@ class ZonesViewModel @Inject constructor(
         startCheck(check.zoneId)
     }
 
-    private suspend fun applySession(zoneId: String, session: ZoneBindingSession) {
-        updateCheck(zoneId) {
+    private fun applySession(attempt: Long, session: ZoneBindingSession, frames: FrameLoader) {
+        updateCheck(attempt) {
             it.copy(
                 sessionId = session.id,
                 state = session.state,
@@ -409,20 +433,40 @@ class ZonesViewModel @Inject constructor(
                 failure = session.failure,
             )
         }
-        val mediaId = session.observation?.mediaId ?: return
-        if (_state.value.check?.frameMediaId == mediaId) return
-        showCheckFrame(mediaId)
+        session.observation?.mediaId?.let(frames::load)
     }
 
-    /** Кадр для проверки. Не загрузился — остаётся прежний: камера неподвижна, маркер ляжет верно. */
-    private suspend fun showCheckFrame(mediaId: String) {
-        val zoneId = _state.value.check?.zoneId ?: return
-        try {
-            val bytes = image(mediaId)
-            updateCheck(zoneId) { it.copy(frame = bytes, frameMediaId = mediaId) }
-        } catch (error: AppError) {
-            Timber.w("Кадр проверки зоны не загрузился | ошибка=%s", error)
+    /**
+     * Загрузка кадров проверки рядом с опросом. Пока идёт одна загрузка, новые
+     * кадры пропускаются: следующий наблюдённый кадр всё равно придёт через секунду.
+     * Не загрузился — остаётся прежний: камера неподвижна, маркер ляжет верно.
+     */
+    private inner class FrameLoader(private val scope: CoroutineScope, private val attempt: Long) {
+        private var job: Job? = null
+        private var requested: String? = null
+
+        fun load(mediaId: String) {
+            if (mediaId == requested || job?.isActive == true) return
+            requested = mediaId
+            job = scope.launch {
+                try {
+                    val bytes = image(mediaId)
+                    updateCheck(attempt) { it.copy(frame = bytes, frameMediaId = mediaId) }
+                } catch (error: AppError) {
+                    Timber.w(error, "Кадр проверки зоны не загрузился")
+                }
+            }
         }
+    }
+
+    /** Предел опроса по сроку сессии от сервера: длительность берётся из его же часов. */
+    private fun maxPolls(session: ZoneBindingSession): Int {
+        val lifetime = if (session.startedAt != null && session.expiresAt != null) {
+            Duration.between(session.startedAt, session.expiresAt).toMillis().coerceAtLeast(0)
+        } else {
+            FALLBACK_SESSION_MS
+        }
+        return ((lifetime + DEADLINE_GRACE_MS) / POLL_INTERVAL_MS).toInt().coerceAtLeast(1)
     }
 
     private suspend fun cancelOnServer(agent: String, camera: String, zoneId: String, sessionId: String) {
@@ -430,7 +474,7 @@ class ZonesViewModel @Inject constructor(
             zonesRepository.cancelBinding(agent, camera, zoneId, sessionId)
         } catch (error: AppError) {
             // Не страшно: сервер сам завершит сессию по таймауту.
-            Timber.w("Проверку зоны не удалось отменить | ошибка=%s", error)
+            Timber.w(error, "Проверку зоны не удалось отменить")
         }
     }
 
@@ -441,14 +485,14 @@ class ZonesViewModel @Inject constructor(
             val zones = zonesRepository.zones(agent, camera)
             _state.update { it.copy(zones = zones) }
         } catch (error: AppError) {
-            Timber.w("Список зон не обновился | ошибка=%s", error)
+            Timber.w(error, "Список зон не обновился")
         }
     }
 
-    /** Меняет проверку, только если на экране всё ещё она: после отмены поздний ответ не воскресит экран. */
-    private fun updateCheck(zoneId: String, transform: (ZoneCheck) -> ZoneCheck) {
+    /** Меняет проверку, только если на экране всё ещё эта попытка: поздний ответ прежней её не тронет. */
+    private fun updateCheck(attempt: Long, transform: (ZoneCheck) -> ZoneCheck) {
         _state.update { state ->
-            val check = state.check?.takeIf { it.zoneId == zoneId } ?: return@update state
+            val check = state.check?.takeIf { it.attempt == attempt } ?: return@update state
             state.copy(check = transform(check))
         }
     }
@@ -468,5 +512,9 @@ class ZonesViewModel @Inject constructor(
     private companion object {
         const val POLL_INTERVAL_MS = 1_000L
         const val MAX_NETWORK_FAILURES = 5
+        const val DEADLINE_GRACE_MS = 15_000L
+
+        /** Если сервер не прислал срок сессии: с запасом больше его таймаута по умолчанию (60 с). */
+        const val FALLBACK_SESSION_MS = 300_000L
     }
 }
