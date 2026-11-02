@@ -71,6 +71,8 @@ class ErrorMapper @Inject constructor(private val json: Json) {
         "zone_not_found" -> AppError.ZoneNotFound
         "zone_version_conflict" -> AppError.ZoneConflict
         "zone_binding_in_progress" -> AppError.ZoneBusy
+        "zone_already_bound" -> AppError.ZoneAlreadyBound
+        "binding_session_not_found" -> AppError.ZoneCheckNotFound
         "zone_limit_reached" -> AppError.ZoneLimit
         "invalid_reference_frame" -> AppError.ZoneFrameOutdated
         "invalid_zone" -> AppError.Validation(null)

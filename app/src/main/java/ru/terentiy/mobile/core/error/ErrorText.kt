@@ -26,6 +26,9 @@ fun AppError.messageRes(): Int = when (this) {
     AppError.ZoneLimit -> R.string.error_zone_limit
     AppError.ZoneFrameOutdated -> R.string.error_zone_frame_outdated
     AppError.ZonesUnsupported -> R.string.error_zones_unsupported
+    AppError.ZoneAlreadyBound -> R.string.error_zone_already_bound
+    AppError.ZoneCheckNotFound -> R.string.error_zone_check_not_found
+    AppError.ZoneCheckNeedsServer -> R.string.error_zone_check_needs_server
     AppError.Network -> R.string.error_network
     is AppError.Validation -> R.string.error_validation
     is AppError.Server -> R.string.error_server

@@ -24,6 +24,7 @@ import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
 import java.util.UUID
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.ZoneGeometry
 import ru.terentiy.mobile.domain.ZoneState
@@ -376,6 +377,16 @@ class DemoZonesRepository @Inject constructor() : ZonesRepository {
         delay(DemoScenario.NETWORK_FEEL_MS)
         mutex.withLock { zones.removeAll { it.id == zoneId } }
     }
+
+    // Проверка зоны — это распознавание человека на живых кадрах камеры; её не
+    // имитируем: проверять экран нужно с сервером в демо-режиме (видеофайл вместо камеры).
+    override suspend fun startBinding(agentId: String, cameraId: String, zoneId: String, version: Int): ZoneBindingSession =
+        throw AppError.ZoneCheckNeedsServer
+
+    override suspend fun binding(agentId: String, cameraId: String, zoneId: String, sessionId: String): ZoneBindingSession =
+        throw AppError.ZoneCheckNeedsServer
+
+    override suspend fun cancelBinding(agentId: String, cameraId: String, zoneId: String, sessionId: String) = Unit
 
     private companion object {
         const val DEMO_FRAME_ID = "demo-frame-for-zones"

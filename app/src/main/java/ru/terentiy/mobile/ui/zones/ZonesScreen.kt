@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -21,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,11 +38,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -60,6 +64,7 @@ import ru.terentiy.mobile.domain.Zone
 import ru.terentiy.mobile.domain.ZonePoint
 import ru.terentiy.mobile.domain.ZoneState
 import ru.terentiy.mobile.ui.common.IconArrowBack
+import ru.terentiy.mobile.ui.common.IconExpand
 import ru.terentiy.mobile.ui.common.MessageBanner
 import ru.terentiy.mobile.ui.common.PrimaryButton
 import ru.terentiy.mobile.ui.common.SecondaryButton
@@ -166,8 +171,8 @@ fun ZonesContent(
  */
 @Composable
 private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
-    val targetWidth = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.roundToPx() }
-    val bitmap = remember(state.frame, targetWidth) { state.frame?.let { decodeFrame(it, targetWidth) } }
+    val bitmap = remember(state.frame) { state.frame?.let { decodeFrame(it, ZOOM_FRAME_WIDTH) } }
+    var fullScreen by rememberSaveable { mutableStateOf(false) }
 
     if (bitmap == null) {
         Surface(
@@ -196,6 +201,8 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
         )
         return
     }
+
+    if (fullScreen) FrameFullScreen(state = state, bitmap = bitmap, actions = actions, onClose = { fullScreen = false })
 
     if (state.editing) {
         Text(
@@ -235,26 +242,35 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
             }
         }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1)),
-    ) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = null,
-            contentScale = ContentScale.FillBounds,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Canvas(modifier = Modifier.fillMaxSize().then(drawing)) {
-            state.shownZones.forEach { zone -> drawZone(zone.polygon, other, filled = false) }
-            state.edited?.let { edited ->
-                drawZone(edited.points, fill, filled = true)
-                edited.points.forEach { p ->
-                    val center = Offset(p.x * size.width, p.y * size.height)
-                    drawCircle(color = fill, radius = 9.dp.toPx(), center = center)
-                    drawCircle(color = vertex, radius = 4.dp.toPx(), center = center)
+    // По горизонтали ширина экрана больше высоты, и кадр во всю ширину уходил
+    // за нижний край. Высота ограничена, кадр по центру, пропорции те же.
+    val maxFrameHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .heightIn(max = maxFrameHeight)
+                .aspectRatio(bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1), matchHeightConstraintsFirst = true),
+        ) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                filterQuality = FilterQuality.Medium,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Canvas(modifier = Modifier.fillMaxSize().then(drawing)) {
+                val toScreen = { p: ZonePoint -> Offset(p.x * size.width, p.y * size.height) }
+                state.shownZones.forEach { zone -> drawZone(zone.polygon, other, filled = false, toScreen = toScreen) }
+                state.edited?.let { edited ->
+                    drawZone(edited.points, fill, filled = true, toScreen = toScreen)
+                    drawVertices(edited.points, fill, vertex, toScreen = toScreen)
                 }
+            }
+            FilledTonalIconButton(
+                onClick = { fullScreen = true },
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+            ) {
+                Icon(imageVector = IconExpand, contentDescription = stringResource(R.string.zone_expand))
             }
         }
     }
@@ -376,16 +392,32 @@ private fun ZoneState.textRes(): Int = when (this) {
     ZoneState.BOUND -> R.string.zone_state_bound
 }
 
-private fun DrawScope.drawZone(points: List<ZonePoint>, color: Color, filled: Boolean) {
+/**
+ * Ширина, до которой уменьшается кадр при декодировании. Больше ширины экрана,
+ * чтобы при увеличении кадр не расплывался; 4K уменьшается вдвое — так кадр
+ * занимает около 8 МБ памяти.
+ */
+private const val ZOOM_FRAME_WIDTH = 1920
+
+/** Контур зоны; [toScreen] переводит точку из долей кадра в координаты экрана. */
+internal fun DrawScope.drawZone(points: List<ZonePoint>, color: Color, filled: Boolean, toScreen: (ZonePoint) -> Offset) {
     if (points.isEmpty()) return
     val path = Path().apply {
         points.forEachIndexed { index, p ->
-            val x = p.x * size.width
-            val y = p.y * size.height
+            val (x, y) = toScreen(p)
             if (index == 0) moveTo(x, y) else lineTo(x, y)
         }
         if (points.size >= 3) close()
     }
     if (filled && points.size >= 3) drawPath(path = path, color = color.copy(alpha = 0.3f))
     drawPath(path = path, color = color, style = Stroke(width = 2.dp.toPx()))
+}
+
+/** Вершины редактируемой зоны: размер на экране не зависит от масштаба. */
+internal fun DrawScope.drawVertices(points: List<ZonePoint>, fill: Color, vertex: Color, toScreen: (ZonePoint) -> Offset) {
+    points.forEach { p ->
+        val center = toScreen(p)
+        drawCircle(color = fill, radius = 9.dp.toPx(), center = center)
+        drawCircle(color = vertex, radius = 4.dp.toPx(), center = center)
+    }
 }

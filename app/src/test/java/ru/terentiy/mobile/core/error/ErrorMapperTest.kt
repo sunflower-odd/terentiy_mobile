@@ -77,6 +77,22 @@ class ErrorMapperTest {
     }
 
     @Test
+    fun `коды проверки зоны`() {
+        assertEquals(
+            AppError.ZoneAlreadyBound,
+            mapper.map(httpError(409, """{"code":"zone_already_bound","message":"Zone is already bound"}""")),
+        )
+        assertEquals(
+            AppError.ZoneBusy,
+            mapper.map(httpError(409, """{"code":"zone_binding_in_progress","message":"A binding session is already active"}""")),
+        )
+        assertEquals(
+            AppError.ZoneCheckNotFound,
+            mapper.map(httpError(404, """{"code":"binding_session_not_found","message":"Binding session was not found"}""")),
+        )
+    }
+
+    @Test
     fun `прикладной отказ валидации приходит с кодом`() {
         assertTrue(
             mapper.map(httpError(422, """{"code":"invalid_activation","message":"PIN must contain six digits"}"""))

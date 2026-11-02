@@ -91,4 +91,30 @@ interface TerentiyApi {
         @Path("cameraId") cameraId: String,
         @Path("zoneId") zoneId: String,
     ): Response<Unit>
+
+    /** Начать проверку зоны: человек встаёт в неё, сервер подтверждает по свежим кадрам. */
+    @POST("api/v1/agents/{agentId}/cameras/{cameraId}/zones/{zoneId}/binding-sessions")
+    suspend fun startZoneBinding(
+        @Path("agentId") agentId: String,
+        @Path("cameraId") cameraId: String,
+        @Path("zoneId") zoneId: String,
+        @Body body: StartZoneBindingRequestDto,
+    ): ZoneBindingSessionDto
+
+    @GET("api/v1/agents/{agentId}/cameras/{cameraId}/zones/{zoneId}/binding-sessions/{sessionId}")
+    suspend fun zoneBinding(
+        @Path("agentId") agentId: String,
+        @Path("cameraId") cameraId: String,
+        @Path("zoneId") zoneId: String,
+        @Path("sessionId") sessionId: String,
+    ): ZoneBindingSessionDto
+
+    /** `204` без тела, в том числе если сессия уже завершилась. */
+    @DELETE("api/v1/agents/{agentId}/cameras/{cameraId}/zones/{zoneId}/binding-sessions/{sessionId}")
+    suspend fun cancelZoneBinding(
+        @Path("agentId") agentId: String,
+        @Path("cameraId") cameraId: String,
+        @Path("zoneId") zoneId: String,
+        @Path("sessionId") sessionId: String,
+    ): Response<Unit>
 }

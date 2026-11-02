@@ -7,6 +7,7 @@ import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.SessionState
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneDraft
 
 /**
@@ -87,4 +88,12 @@ interface ZonesRepository {
     suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone
 
     suspend fun delete(agentId: String, cameraId: String, zoneId: String)
+
+    /** Начать проверку зоны версии [version]. Зона переходит в «проверяется». */
+    suspend fun startBinding(agentId: String, cameraId: String, zoneId: String, version: Int): ZoneBindingSession
+
+    suspend fun binding(agentId: String, cameraId: String, zoneId: String, sessionId: String): ZoneBindingSession
+
+    /** Отменить проверку. Уже завершённая сессия — не ошибка. */
+    suspend fun cancelBinding(agentId: String, cameraId: String, zoneId: String, sessionId: String)
 }

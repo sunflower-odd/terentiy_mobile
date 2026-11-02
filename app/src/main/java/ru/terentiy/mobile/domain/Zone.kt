@@ -7,8 +7,9 @@ import kotlin.math.abs
  * Критическая зона: участок пола на кадре камеры. Хранится на сервере.
  *
  * Новая или перерисованная зона — в [ZoneState.DRAFT] и ничего не отслеживает,
- * пока сервер её не проверит (сессия привязки по контракту 2.0.0-draft — в
- * приложении её пока нет). Решение «человек в зоне» принимает только сервер.
+ * пока сервер её не проверит: человек встаёт в зону, сервер по свежим кадрам
+ * подтверждает, что видит его внутри (сессия привязки, [ZoneBindingSession]).
+ * Решение «человек в зоне» принимает только сервер.
  *
  * Координаты вершин — доли ширины и высоты кадра [referenceFrameId] от 0 до 1.
  */
@@ -33,6 +34,60 @@ enum class ZoneState(val wire: String) {
 
     companion object {
         fun parse(raw: String?): ZoneState = entries.firstOrNull { it.wire == raw } ?: DRAFT
+    }
+}
+
+/**
+ * Сессия проверки (привязки) зоны. Опрашивается, пока не придёт конечное
+ * состояние. Числовые счётчики сервера пользователю не показываются — только
+ * [state] и маркер [observation].
+ */
+data class ZoneBindingSession(
+    val id: String,
+    val zoneId: String,
+    val zoneVersion: Int,
+    val state: ZoneBindingState,
+    val expiresAt: Instant?,
+    val observation: ZoneObservation?,
+    val failure: ZoneBindingFailure?,
+)
+
+enum class ZoneBindingState(val wire: String, val terminal: Boolean) {
+    WAITING_FOR_FRAME("waiting_for_frame", false),
+    WAITING_FOR_PERSON("waiting_for_person", false),
+    COLLECTING("collecting", false),
+    BOUND("bound", true),
+    FAILED("failed", true),
+    EXPIRED("expired", true),
+    CANCELLED("cancelled", true);
+
+    companion object {
+        /** Незнакомое состояние считается промежуточным: опрос продолжается до конечного. */
+        fun parse(raw: String?): ZoneBindingState = entries.firstOrNull { it.wire == raw } ?: WAITING_FOR_FRAME
+    }
+}
+
+/**
+ * Последнее, что сервер увидел на кадре: точка опоры человека в долях кадра
+ * [mediaId] и попала ли она в зону. [inZone] решает сервер, клиент не пересчитывает.
+ */
+data class ZoneObservation(
+    val mediaId: String,
+    val point: ZonePoint,
+    val inZone: Boolean,
+)
+
+/** Причина неудачной проверки. Незнакомый код — [UNKNOWN]. */
+enum class ZoneBindingFailure(val wire: String?) {
+    CAMERA_UNAVAILABLE("camera_unavailable"),
+    NO_PERSON("no_person_detected"),
+    NO_SUPPORT_POINT("no_reliable_support_point"),
+    NOT_INSIDE("insufficient_inside_observations"),
+    ZONE_CHANGED("zone_version_changed"),
+    UNKNOWN(null);
+
+    companion object {
+        fun parse(raw: String?): ZoneBindingFailure = entries.firstOrNull { it.wire != null && it.wire == raw } ?: UNKNOWN
     }
 }
 

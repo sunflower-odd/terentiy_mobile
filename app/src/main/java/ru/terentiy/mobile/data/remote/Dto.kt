@@ -131,3 +131,39 @@ data class ZoneUpdateRequestDto(
     @SerialName("reference_frame_id") val referenceFrameId: String,
     val version: Int,
 )
+
+/** Тело `POST …/binding-sessions`: версия зоны, которую пользователь только что видел. */
+@Serializable
+data class StartZoneBindingRequestDto(
+    @SerialName("zone_version") val zoneVersion: Int,
+)
+
+/** Сессия проверки зоны. `binding` (запись о результате) приложению не нужна и не разбирается. */
+@Serializable
+data class ZoneBindingSessionDto(
+    @SerialName("binding_session_id") val bindingSessionId: String,
+    @SerialName("zone_id") val zoneId: String = "",
+    @SerialName("zone_version") val zoneVersion: Int = 0,
+    val state: String = "",
+    @SerialName("expires_at") val expiresAt: String? = null,
+    val progress: ZoneBindingProgressDto? = null,
+    val failure: ZoneBindingFailureDto? = null,
+)
+
+@Serializable
+data class ZoneBindingProgressDto(
+    @SerialName("last_observation") val lastObservation: ZoneAnchorObservationDto? = null,
+)
+
+@Serializable
+data class ZoneAnchorObservationDto(
+    @SerialName("media_id") val mediaId: String = "",
+    val point: NormalizedPointDto? = null,
+    @SerialName("in_zone") val inZone: Boolean = false,
+)
+
+@Serializable
+data class NormalizedPointDto(val x: Double, val y: Double)
+
+@Serializable
+data class ZoneBindingFailureDto(val code: String? = null)

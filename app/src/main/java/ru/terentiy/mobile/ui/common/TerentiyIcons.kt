@@ -35,6 +35,23 @@ private fun icon(name: String, block: ImageVector.Builder.() -> Unit): ImageVect
 
 private val Black = SolidColor(Color.Black)
 
+/** Четыре угла наружу: развернуть кадр на весь экран. */
+val IconExpand: ImageVector by lazy {
+    icon("Expand") {
+        path(
+            stroke = Black,
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        ) {
+            moveTo(4f, 9f); lineTo(4f, 4f); lineTo(9f, 4f)
+            moveTo(15f, 4f); lineTo(20f, 4f); lineTo(20f, 9f)
+            moveTo(20f, 15f); lineTo(20f, 20f); lineTo(15f, 20f)
+            moveTo(9f, 20f); lineTo(4f, 20f); lineTo(4f, 15f)
+        }
+    }
+}
+
 /** Открытый глаз: показать пароль. */
 val IconEye: ImageVector by lazy {
     icon("Eye") {

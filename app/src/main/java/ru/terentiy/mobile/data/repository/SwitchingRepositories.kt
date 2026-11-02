@@ -16,6 +16,7 @@ import ru.terentiy.mobile.data.repository.demo.DemoZonesRepository
 import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
@@ -115,6 +116,15 @@ class SwitchingZonesRepository @Inject constructor(
 
     override suspend fun delete(agentId: String, cameraId: String, zoneId: String) =
         current().delete(agentId, cameraId, zoneId)
+
+    override suspend fun startBinding(agentId: String, cameraId: String, zoneId: String, version: Int): ZoneBindingSession =
+        current().startBinding(agentId, cameraId, zoneId, version)
+
+    override suspend fun binding(agentId: String, cameraId: String, zoneId: String, sessionId: String): ZoneBindingSession =
+        current().binding(agentId, cameraId, zoneId, sessionId)
+
+    override suspend fun cancelBinding(agentId: String, cameraId: String, zoneId: String, sessionId: String) =
+        current().cancelBinding(agentId, cameraId, zoneId, sessionId)
 
     private suspend fun current(): ZonesRepository =
         if (settings.currentDataSourceMode() == DataSourceMode.DEMO) demo else network

@@ -75,6 +75,15 @@ sealed class AppError : Exception() {
     /** На сервере ещё нет маршрутов зон. */
     data object ZonesUnsupported : AppError()
 
+    /** Зона уже проверена — повторно проверять её сервер не даёт. */
+    data object ZoneAlreadyBound : AppError()
+
+    /** Сессия проверки зоны не найдена: её уже нет на сервере. */
+    data object ZoneCheckNotFound : AppError()
+
+    /** Проверке зоны нужен сервер с камерой; в показе без сервера её нет. */
+    data object ZoneCheckNeedsServer : AppError()
+
     /** Сеть недоступна, таймаут, неверный адрес сервера. */
     data object Network : AppError()
 

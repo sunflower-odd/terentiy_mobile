@@ -15,6 +15,7 @@ import ru.terentiy.mobile.data.local.SessionHolder
 import ru.terentiy.mobile.data.remote.MediaDownloader
 import ru.terentiy.mobile.data.remote.MobileActivationRequestDto
 import ru.terentiy.mobile.data.remote.MobileLoginRequestDto
+import ru.terentiy.mobile.data.remote.StartZoneBindingRequestDto
 import ru.terentiy.mobile.data.remote.TerentiyApi
 import ru.terentiy.mobile.data.remote.toDomain
 import ru.terentiy.mobile.data.repository.AgentsRepository
@@ -26,6 +27,7 @@ import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
@@ -197,6 +199,21 @@ class NetworkZonesRepository @Inject constructor(
         unsupportedAs(AppError.ZonesUnsupported) {
             val response = api.deleteZone(agentId, cameraId, zoneId)
             // Response<Unit> не бросает HttpException сам — проверяем вручную.
+            if (!response.isSuccessful) throw errorMapper.fromResponse(response.code(), response.errorBody()?.string())
+        }
+    }
+
+    override suspend fun startBinding(agentId: String, cameraId: String, zoneId: String, version: Int): ZoneBindingSession =
+        unsupportedAs(AppError.ZonesUnsupported) {
+            api.startZoneBinding(agentId, cameraId, zoneId, StartZoneBindingRequestDto(version)).toDomain()
+        }
+
+    override suspend fun binding(agentId: String, cameraId: String, zoneId: String, sessionId: String): ZoneBindingSession =
+        authorized { api.zoneBinding(agentId, cameraId, zoneId, sessionId).toDomain() }
+
+    override suspend fun cancelBinding(agentId: String, cameraId: String, zoneId: String, sessionId: String) {
+        authorized {
+            val response = api.cancelZoneBinding(agentId, cameraId, zoneId, sessionId)
             if (!response.isSuccessful) throw errorMapper.fromResponse(response.code(), response.errorBody()?.string())
         }
     }

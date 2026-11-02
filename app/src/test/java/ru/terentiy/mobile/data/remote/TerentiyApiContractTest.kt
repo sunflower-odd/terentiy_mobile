@@ -341,4 +341,64 @@ class TerentiyApiContractTest {
 
         assertEquals(AppError.ZoneConflict, error)
     }
+
+    // Тела — из `SqlAlchemyZoneService._session_json` (terentiy_ai, 2b81111).
+    private fun sessionBody(state: String, observation: String = "null", failure: String = "null") = """
+        {"binding_session_id":"s1","zone_id":"z1","zone_version":2,"state":"$state",
+         "started_at":"2026-11-02T10:00:00Z","expires_at":"2026-11-02T10:01:00Z",
+         "progress":{"accepted_observations":1,"required_observations":6,"last_observation":$observation},
+         "binding":null,"failure":$failure}
+    """.trimIndent()
+
+    @Test
+    fun `проверка зоны стартует с версией зоны`() = runTest {
+        respond(201, sessionBody("waiting_for_frame"))
+
+        val session = api.startZoneBinding("agent-1", "camera-1", "z1", StartZoneBindingRequestDto(2)).toDomain()
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/agents/agent-1/cameras/camera-1/zones/z1/binding-sessions", request.path)
+        assertEquals("""{"zone_version":2}""", request.body.readUtf8())
+        assertEquals("s1", session.id)
+        assertEquals(ru.terentiy.mobile.domain.ZoneBindingState.WAITING_FOR_FRAME, session.state)
+        assertNull(session.observation)
+    }
+
+    @Test
+    fun `опрос проверки отдаёт маркер и решение сервера`() = runTest {
+        val observation = """{"captured_at":"2026-11-02T10:00:05Z","frame_id":"f1","media_id":"m1",
+            "point":{"x":0.41,"y":0.77},"quality":"full","in_zone":false}"""
+        respond(200, sessionBody("collecting", observation))
+
+        val session = api.zoneBinding("agent-1", "camera-1", "z1", "s1").toDomain()
+
+        assertEquals("/api/v1/agents/agent-1/cameras/camera-1/zones/z1/binding-sessions/s1", server.takeRequest().path)
+        assertEquals(ru.terentiy.mobile.domain.ZoneBindingState.COLLECTING, session.state)
+        assertEquals("m1", session.observation?.mediaId)
+        assertEquals(0.41f, session.observation?.point?.x ?: 0f, 0.0001f)
+        assertEquals(false, session.observation?.inZone)
+    }
+
+    @Test
+    fun `неудачная проверка приходит с причиной`() = runTest {
+        respond(200, sessionBody("expired", failure = """{"code":"no_person_detected","message":"No person was detected"}"""))
+
+        val session = api.zoneBinding("agent-1", "camera-1", "z1", "s1").toDomain()
+
+        assertTrue(session.state.terminal)
+        assertEquals(ru.terentiy.mobile.domain.ZoneBindingFailure.NO_PERSON, session.failure)
+    }
+
+    @Test
+    fun `отмена проверки — DELETE без тела`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(204))
+
+        val response = api.cancelZoneBinding("agent-1", "camera-1", "z1", "s1")
+
+        val request = server.takeRequest()
+        assertEquals("DELETE", request.method)
+        assertEquals("/api/v1/agents/agent-1/cameras/camera-1/zones/z1/binding-sessions/s1", request.path)
+        assertTrue(response.isSuccessful)
+    }
 }

@@ -6,11 +6,17 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.terentiy.mobile.R
 import ru.terentiy.mobile.core.error.AppError
 import ru.terentiy.mobile.core.error.messageRes
@@ -20,8 +26,12 @@ import ru.terentiy.mobile.data.repository.ZonesRepository
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneBindingFailure
+import ru.terentiy.mobile.domain.ZoneBindingSession
+import ru.terentiy.mobile.domain.ZoneBindingState
 import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.ZoneGeometry
+import ru.terentiy.mobile.domain.ZoneObservation
 import ru.terentiy.mobile.domain.ZonePoint
 import timber.log.Timber
 
@@ -32,6 +42,47 @@ data class EditedZone(
     val name: String = "",
     val points: List<ZonePoint> = emptyList(),
 )
+
+/**
+ * Проверка зоны на экране. [state] — `null`, пока сервер не ответил на запуск.
+ * [errorRes] — сбой запроса (сеть, сервер), а не результат проверки.
+ * [frame] — последний кадр, на котором сервер искал человека; маркер [observation]
+ * рисуется поверх него.
+ */
+data class ZoneCheck(
+    val zoneId: String,
+    val zoneName: String,
+    val polygon: List<ZonePoint>,
+    val sessionId: String? = null,
+    val state: ZoneBindingState? = null,
+    val observation: ZoneObservation? = null,
+    val failure: ZoneBindingFailure? = null,
+    @param:StringRes val errorRes: Int? = null,
+    val frame: ByteArray? = null,
+    val frameMediaId: String? = null,
+) {
+    val running: Boolean get() = errorRes == null && state?.terminal != true
+    val bound: Boolean get() = state == ZoneBindingState.BOUND
+    val failed: Boolean get() = !running && !bound
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ZoneCheck) return false
+        return zoneId == other.zoneId && zoneName == other.zoneName && polygon == other.polygon &&
+            sessionId == other.sessionId && state == other.state && observation == other.observation &&
+            failure == other.failure && errorRes == other.errorRes && frameMediaId == other.frameMediaId &&
+            (frame?.contentEquals(other.frame) ?: (other.frame == null))
+    }
+
+    override fun hashCode(): Int {
+        var result = zoneId.hashCode()
+        result = 31 * result + (state?.hashCode() ?: 0)
+        result = 31 * result + (observation?.hashCode() ?: 0)
+        result = 31 * result + (frameMediaId?.hashCode() ?: 0)
+        result = 31 * result + (errorRes ?: 0)
+        return result
+    }
+}
 
 data class ZonesUiState(
     val loading: Boolean = true,
@@ -47,9 +98,11 @@ data class ZonesUiState(
     val saving: Boolean = false,
     @param:StringRes val errorRes: Int? = null,
     @param:StringRes val problemRes: Int? = null,
+    /** Идёт или закончилась проверка зоны; `null` — экран зон в обычном виде. */
+    val check: ZoneCheck? = null,
 ) {
     val editing: Boolean get() = edited != null
-    val canAdd: Boolean get() = !loading && !noAgent && !editing && zones.size < ZoneGeometry.MAX_ZONES
+    val canAdd: Boolean get() = !loading && !noAgent && !editing && check == null && zones.size < ZoneGeometry.MAX_ZONES
 
     /** Зоны, которые рисуются контуром: все, кроме редактируемой. */
     val shownZones: List<Zone> get() = zones.filter { it.id != edited?.id }
@@ -63,7 +116,7 @@ data class ZonesUiState(
             edited == other.edited && (frame?.contentEquals(other.frame) ?: (other.frame == null)) &&
             frameId == other.frameId && frameCapturedAt == other.frameCapturedAt &&
             frameLoading == other.frameLoading && saving == other.saving &&
-            errorRes == other.errorRes && problemRes == other.problemRes
+            errorRes == other.errorRes && problemRes == other.problemRes && check == other.check
     }
 
     override fun hashCode(): Int {
@@ -72,6 +125,7 @@ data class ZonesUiState(
         result = 31 * result + (frameId?.hashCode() ?: 0)
         result = 31 * result + (frame?.contentHashCode() ?: 0)
         result = 31 * result + loading.hashCode() + frameLoading.hashCode() + saving.hashCode()
+        result = 31 * result + (check?.hashCode() ?: 0)
         return result
     }
 }
@@ -81,8 +135,9 @@ data class ZonesUiState(
  *
  * Сверху вид с камеры — по кнопке «Получить вид», не автообновлением. На виде
  * все зоны камеры, под ним — их список. Нажатие на зону или «Добавить зону»
- * включает рисование. Зоны хранятся на сервере; проверку зоны (человек встаёт в
- * неё, сервер подтверждает) приложение пока не запускает.
+ * включает рисование. Зоны хранятся на сервере. Непроверенную зону можно
+ * проверить: человек встаёт в неё, сервер по свежим кадрам подтверждает, что
+ * видит его внутри (см. [startCheck]).
  *
  * Камера одна на дом, поэтому берётся первый агент — как на главном экране.
  */
@@ -98,6 +153,7 @@ class ZonesViewModel @Inject constructor(
 
     private var agentId: String? = null
     private var cameraId: String? = null
+    private var checkJob: Job? = null
 
     init {
         load()
@@ -150,6 +206,7 @@ class ZonesViewModel @Inject constructor(
      * сохранении свежий кадр берётся в любом случае (см. [save]).
      */
     fun edit(zoneId: String) {
+        if (_state.value.check != null) return
         val zone = _state.value.zones.firstOrNull { it.id == zoneId } ?: return
         _state.update {
             it.copy(edited = EditedZone(zone.id, zone.version, zone.name, zone.polygon), problemRes = null, errorRes = null)
@@ -263,6 +320,139 @@ class ZonesViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Проверка зоны (сессия привязки, mobile-server 2.0.0-draft).
+     *
+     * Запуск, затем опрос раз в [POLL_INTERVAL_MS], пока сервер не вернёт
+     * конечное состояние. Сервер сам завершает сессию по таймауту (60 с), так
+     * что опрос не бесконечен. Кратковременная потеря сети опрос не обрывает.
+     */
+    fun startCheck(zoneId: String) {
+        val agent = agentId ?: return
+        val camera = cameraId ?: return
+        val state = _state.value
+        if (state.editing || state.check?.running == true) return
+        val zone = state.zones.firstOrNull { it.id == zoneId } ?: return
+        val frame = state.frame?.takeIf { state.frameId == zone.referenceFrameId }
+        _state.update { it.copy(check = ZoneCheck(zone.id, zone.name, zone.polygon, frame = frame), errorRes = null) }
+        checkJob?.cancel()
+        checkJob = viewModelScope.launch {
+            if (frame == null) showCheckFrame(zone.referenceMediaId)
+            val job = coroutineContext.job
+            // Запуск доводится до конца даже при отмене: иначе сессия на сервере
+            // осталась бы без хозяина и держала зону «проверяется» до таймаута.
+            var session = try {
+                withContext(NonCancellable) {
+                    zonesRepository.startBinding(agent, camera, zone.id, zone.version).also { started ->
+                        if (job.isCancelled) cancelOnServer(agent, camera, zone.id, started.id)
+                    }
+                }
+            } catch (error: AppError) {
+                updateCheck(zone.id) { it.copy(errorRes = error.messageRes()) }
+                refreshZones()
+                return@launch
+            }
+            coroutineContext.ensureActive()
+            applySession(zone.id, session)
+            var networkFailures = 0
+            while (!session.state.terminal) {
+                delay(POLL_INTERVAL_MS)
+                session = try {
+                    zonesRepository.binding(agent, camera, zone.id, session.id).also { networkFailures = 0 }
+                } catch (error: AppError) {
+                    if (error == AppError.Network && ++networkFailures < MAX_NETWORK_FAILURES) continue
+                    Timber.w("Опрос проверки зоны прерван | ошибка=%s", error)
+                    updateCheck(zone.id) { it.copy(errorRes = error.messageRes()) }
+                    refreshZones()
+                    return@launch
+                }
+                applySession(zone.id, session)
+            }
+            Timber.i("Проверка зоны завершена | state=%s | failure=%s", session.state.wire, session.failure)
+            refreshZones()
+        }
+    }
+
+    /** Отменить идущую проверку и вернуться к зонам. */
+    fun cancelCheck() {
+        val check = _state.value.check ?: return
+        checkJob?.cancel()
+        _state.update { it.copy(check = null) }
+        val agent = agentId ?: return
+        val camera = cameraId ?: return
+        val sessionId = check.sessionId
+        viewModelScope.launch {
+            if (sessionId != null && check.running) cancelOnServer(agent, camera, check.zoneId, sessionId)
+            refreshZones()
+        }
+    }
+
+    /** Закрыть экран проверки после результата. */
+    fun closeCheck() {
+        if (_state.value.check?.running == true) return cancelCheck()
+        _state.update { it.copy(check = null) }
+    }
+
+    /** Повторить проверку той же зоны: версия берётся из обновлённого списка. */
+    fun retryCheck() {
+        val check = _state.value.check ?: return
+        if (check.running) return
+        startCheck(check.zoneId)
+    }
+
+    private suspend fun applySession(zoneId: String, session: ZoneBindingSession) {
+        updateCheck(zoneId) {
+            it.copy(
+                sessionId = session.id,
+                state = session.state,
+                observation = session.observation ?: it.observation,
+                failure = session.failure,
+            )
+        }
+        val mediaId = session.observation?.mediaId ?: return
+        if (_state.value.check?.frameMediaId == mediaId) return
+        showCheckFrame(mediaId)
+    }
+
+    /** Кадр для проверки. Не загрузился — остаётся прежний: камера неподвижна, маркер ляжет верно. */
+    private suspend fun showCheckFrame(mediaId: String) {
+        val zoneId = _state.value.check?.zoneId ?: return
+        try {
+            val bytes = image(mediaId)
+            updateCheck(zoneId) { it.copy(frame = bytes, frameMediaId = mediaId) }
+        } catch (error: AppError) {
+            Timber.w("Кадр проверки зоны не загрузился | ошибка=%s", error)
+        }
+    }
+
+    private suspend fun cancelOnServer(agent: String, camera: String, zoneId: String, sessionId: String) {
+        try {
+            zonesRepository.cancelBinding(agent, camera, zoneId, sessionId)
+        } catch (error: AppError) {
+            // Не страшно: сервер сам завершит сессию по таймауту.
+            Timber.w("Проверку зоны не удалось отменить | ошибка=%s", error)
+        }
+    }
+
+    private suspend fun refreshZones() {
+        val agent = agentId ?: return
+        val camera = cameraId ?: return
+        try {
+            val zones = zonesRepository.zones(agent, camera)
+            _state.update { it.copy(zones = zones) }
+        } catch (error: AppError) {
+            Timber.w("Список зон не обновился | ошибка=%s", error)
+        }
+    }
+
+    /** Меняет проверку, только если на экране всё ещё она: после отмены поздний ответ не воскресит экран. */
+    private fun updateCheck(zoneId: String, transform: (ZoneCheck) -> ZoneCheck) {
+        _state.update { state ->
+            val check = state.check?.takeIf { it.zoneId == zoneId } ?: return@update state
+            state.copy(check = transform(check))
+        }
+    }
+
     private suspend fun image(mediaId: String): ByteArray =
         (events.media(mediaId) as? MediaPayload.Image)?.bytes ?: throw AppError.MediaUnsupported(null)
 
@@ -274,4 +464,9 @@ class ZonesViewModel @Inject constructor(
     }
 
     private fun ZonePoint.clamped() = ZonePoint(x.coerceIn(0f, 1f), y.coerceIn(0f, 1f))
+
+    private companion object {
+        const val POLL_INTERVAL_MS = 1_000L
+        const val MAX_NETWORK_FAILURES = 5
+    }
 }

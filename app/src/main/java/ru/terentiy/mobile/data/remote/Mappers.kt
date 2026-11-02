@@ -14,7 +14,11 @@ import kotlinx.serialization.json.jsonObject
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneBindingFailure
+import ru.terentiy.mobile.domain.ZoneBindingSession
+import ru.terentiy.mobile.domain.ZoneBindingState
 import ru.terentiy.mobile.domain.ZoneDraft
+import ru.terentiy.mobile.domain.ZoneObservation
 import ru.terentiy.mobile.domain.ZonePoint
 import ru.terentiy.mobile.domain.ZoneState
 import ru.terentiy.mobile.domain.EventStatus
@@ -94,6 +98,28 @@ fun ZoneDto.toDomain(): Zone = Zone(
 )
 
 fun ZoneListDto.toDomain(): List<Zone> = items.map { it.toDomain() }
+
+/**
+ * Сессия проверки зоны. Наблюдение без кадра или точки отбрасывается: маркер
+ * рисовать не на чем, а состояние сессии от этого не меняется.
+ */
+fun ZoneBindingSessionDto.toDomain(): ZoneBindingSession = ZoneBindingSession(
+    id = bindingSessionId,
+    zoneId = zoneId,
+    zoneVersion = zoneVersion,
+    state = ZoneBindingState.parse(state),
+    expiresAt = expiresAt.toInstantOrNull(),
+    observation = progress?.lastObservation?.let { observation ->
+        val point = observation.point ?: return@let null
+        if (observation.mediaId.isBlank()) return@let null
+        ZoneObservation(
+            mediaId = observation.mediaId,
+            point = ZonePoint(point.x.toFloat().coerceIn(0f, 1f), point.y.toFloat().coerceIn(0f, 1f)),
+            inZone = observation.inZone,
+        )
+    },
+    failure = failure?.let { ZoneBindingFailure.parse(it.code) },
+)
 
 fun ZoneDraft.toRequest(): ZoneRequestDto = ZoneRequestDto(name.trim(), polygon.toWire(), referenceFrameId)
 
