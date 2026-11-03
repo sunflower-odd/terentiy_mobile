@@ -148,7 +148,7 @@ Unit-тесты не требуют ни сервера, ни эмулятора
 | [`docs/stage-01-mobile-plan.md`](docs/stage-01-mobile-plan.md) | Актуальный план v4.0: решения, объём, риски |
 | [`docs/migration-to-contract-1.0-implemented.md`](docs/migration-to-contract-1.0-implemented.md) | Разбор перехода на реализованный контракт |
 | [`docs/backlog-mobile.md`](docs/backlog-mobile.md) | Отложенное и просьбы к backend |
-| [`docs/research-hypotheses.md`](docs/research-hypotheses.md) | Исследовательские гипотезы и протокол измерений |
-| [`docs/dev-hypotheses.md`](docs/dev-hypotheses.md) | Три гипотезы разработки о финальной версии: backend и приложение |
+| [`docs/hypotheses/research-hypotheses.md`](docs/hypotheses/research-hypotheses.md) | Исследовательские гипотезы и протокол измерений |
+| [`docs/hypotheses/dev-hypotheses.md`](docs/hypotheses/dev-hypotheses.md) | Три гипотезы разработки о финальной версии: backend и приложение |
 | [`docs/adr/`](docs/adr) | Принятые архитектурные решения, включая отменённые |
 | [`docs/archive/`](docs/archive) | Планы предыдущих версий |

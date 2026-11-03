@@ -45,6 +45,8 @@ import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
 import ru.terentiy.mobile.R
 import ru.terentiy.mobile.domain.ZonePoint
+import ru.terentiy.mobile.ui.common.ButtonText
+import ru.terentiy.mobile.ui.common.CompactButtonPadding
 
 /**
  * Кадр на весь экран с увеличением.
@@ -102,22 +104,24 @@ internal fun FrameFullScreen(
                 onMovePoint = actions.movePoint,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
+            // Кнопки всегда в один ряд; на узком экране подписи мельче, а не переносятся.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 if (editing) {
-                    TextButton(onClick = actions.undoPoint, enabled = !points.isNullOrEmpty()) {
-                        Text(stringResource(R.string.zone_undo_point))
+                    TextButton(onClick = actions.undoPoint, enabled = !points.isNullOrEmpty(), contentPadding = CompactButtonPadding, modifier = Modifier.weight(1f)) {
+                        ButtonText(stringResource(R.string.zone_undo_point))
                     }
-                    TextButton(onClick = actions.clearPoints, enabled = !points.isNullOrEmpty()) {
-                        Text(stringResource(R.string.zone_clear_points))
+                    TextButton(onClick = actions.clearPoints, enabled = !points.isNullOrEmpty(), contentPadding = CompactButtonPadding, modifier = Modifier.weight(1f)) {
+                        ButtonText(stringResource(R.string.zone_clear_points))
                     }
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onClose) {
-                    Text(stringResource(if (editing) R.string.zone_done else R.string.common_close))
+                    TextButton(onClick = onClose, contentPadding = CompactButtonPadding, modifier = Modifier.weight(1f)) {
+                        ButtonText(stringResource(R.string.zone_done))
+                    }
+                } else {
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onClose) { ButtonText(stringResource(R.string.common_close)) }
                 }
             }
         }

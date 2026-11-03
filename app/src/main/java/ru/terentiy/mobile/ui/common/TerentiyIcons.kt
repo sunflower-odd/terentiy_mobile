@@ -52,6 +52,24 @@ val IconExpand: ImageVector by lazy {
     }
 }
 
+/** Корзина: удалить. */
+val IconDelete: ImageVector by lazy {
+    icon("Delete") {
+        path(
+            stroke = Black,
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        ) {
+            moveTo(4f, 7f); lineTo(20f, 7f)
+            moveTo(9f, 7f); lineTo(9f, 4f); lineTo(15f, 4f); lineTo(15f, 7f)
+            moveTo(6f, 7f); lineTo(7f, 20f); lineTo(17f, 20f); lineTo(18f, 7f)
+            moveTo(10f, 11f); lineTo(10f, 16f)
+            moveTo(14f, 11f); lineTo(14f, 16f)
+        }
+    }
+}
+
 /** Открытый глаз: показать пароль. */
 val IconEye: ImageVector by lazy {
     icon("Eye") {

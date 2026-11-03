@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -41,6 +43,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import ru.terentiy.mobile.ui.common.ButtonText
+import ru.terentiy.mobile.ui.common.CompactButtonPadding
+import ru.terentiy.mobile.ui.common.IconDelete
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -134,11 +141,46 @@ fun ZonesContent(
     }
     BackHandler(enabled = state.check != null || state.editing, onBack = back)
 
+    val drawing = state.editing && state.check == null && !state.loading && !state.noAgent
+    val window = LocalWindowInfo.current.containerSize
+    val landscape = window.width > window.height
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.zone_delete)) },
+            text = { Text(stringResource(R.string.zone_delete_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    actions.delete()
+                }) { Text(stringResource(R.string.common_continue)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_close)) }
+            },
+        )
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.zones_title)) },
+                title = {
+                    val title = when {
+                        !drawing -> R.string.zones_title
+                        state.edited?.id == null -> R.string.zone_new_title
+                        else -> R.string.zone_edit_title
+                    }
+                    Text(stringResource(title))
+                },
+                actions = {
+                    if (drawing && state.edited?.id != null) {
+                        IconButton(onClick = { confirmDelete = true }, enabled = !state.saving) {
+                            Icon(imageVector = IconDelete, contentDescription = stringResource(R.string.zone_delete))
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = back) {
                         Icon(imageVector = IconArrowBack, contentDescription = stringResource(R.string.common_back))
@@ -146,6 +188,11 @@ fun ZonesContent(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
+        },
+        // При рисовании «Сохранить» и «Отмена» закреплены внизу; по горизонтали
+        // они в правой колонке, чтобы не отнимать у кадра высоту.
+        bottomBar = {
+            if (drawing && !landscape) EditBar(state, actions)
         },
     ) { padding ->
         when {
@@ -161,6 +208,14 @@ fun ZonesContent(
                 )
             }
 
+            // Рисование — без прокрутки: всё на одном экране, кадр уменьшается под высоту.
+            drawing -> EditLayout(
+                state = state,
+                actions = actions,
+                landscape = landscape,
+                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+
             else -> Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -175,8 +230,7 @@ fun ZonesContent(
                     ZoneCheckView(check = check, actions = actions)
                 } else {
                     FrameView(state = state, actions = actions)
-                    if (state.editing) EditPanel(state = state, actions = actions)
-                    else ZoneList(state = state, actions = actions)
+                    ZoneList(state = state, actions = actions)
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -192,7 +246,7 @@ fun ZonesContent(
  * полей, и касание переводится в доли кадра простым делением на размер.
  */
 @Composable
-private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
+private fun FrameView(state: ZonesUiState, actions: ZonesActions, fit: Modifier? = null) {
     val bitmap = remember(state.frame) { state.frame?.let { decodeFrame(it, ZOOM_FRAME_WIDTH) } }
     var fullScreen by rememberSaveable { mutableStateOf(false) }
 
@@ -200,7 +254,7 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
         Surface(
             shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f),
+            modifier = fit?.fillMaxWidth() ?: Modifier.fillMaxWidth().aspectRatio(4f / 3f),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 if (state.frameLoading) {
@@ -264,14 +318,15 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
             }
         }
 
-    // По горизонтали ширина экрана больше высоты, и кадр во всю ширину уходил
-    // за нижний край. Высота ограничена, кадр по центру, пропорции те же.
+    // Кадр по центру, пропорции сохраняются. При рисовании ([fit]) он занимает
+    // оставшееся место экрана и уменьшается, чтобы всё помещалось без прокрутки.
+    // В списке зон высота ограничена: по горизонтали кадр во всю ширину уходил за край.
     val maxFrameHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height * 0.6f).toDp() }
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    val ratio = bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1)
+    Box(modifier = fit?.fillMaxWidth() ?: Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
-            modifier = Modifier
-                .heightIn(max = maxFrameHeight)
-                .aspectRatio(bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1), matchHeightConstraintsFirst = true),
+            modifier = (if (fit != null) Modifier else Modifier.heightIn(max = maxFrameHeight))
+                .aspectRatio(ratio, matchHeightConstraintsFirst = true),
         ) {
             Image(
                 bitmap = bitmap,
@@ -297,26 +352,33 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions) {
         }
     }
 
+    // При рисовании кнопки всегда в один ряд; на узком экране подписи мельче.
+    if (state.editing) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = actions.undoPoint, enabled = points.isNotEmpty(), contentPadding = CompactButtonPadding, modifier = Modifier.weight(1f)) {
+                ButtonText(stringResource(R.string.zone_undo_point))
+            }
+            TextButton(onClick = actions.clearPoints, enabled = points.isNotEmpty(), contentPadding = CompactButtonPadding, modifier = Modifier.weight(1f)) {
+                ButtonText(stringResource(R.string.zone_clear_points))
+            }
+            TextButton(onClick = actions.fetchFrame, enabled = !state.frameLoading, contentPadding = CompactButtonPadding, modifier = Modifier.weight(1f)) {
+                ButtonText(stringResource(R.string.zone_refresh_view))
+            }
+        }
+        return
+    }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        if (state.editing) {
-            TextButton(onClick = actions.undoPoint, enabled = points.isNotEmpty()) {
-                Text(stringResource(R.string.zone_undo_point))
-            }
-            TextButton(onClick = actions.clearPoints, enabled = points.isNotEmpty()) {
-                Text(stringResource(R.string.zone_clear_points))
-            }
-        } else {
-            state.frameCapturedAt?.let {
-                Text(
-                    text = stringResource(R.string.zone_frame_time, TimeFormat.smart(it)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        state.frameCapturedAt?.let {
+            Text(
+                text = stringResource(R.string.zone_frame_time, TimeFormat.smart(it)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f, fill = false),
+            )
         }
         Spacer(Modifier.weight(1f))
         TextButton(onClick = actions.fetchFrame, enabled = !state.frameLoading) {
-            Text(stringResource(R.string.zone_refresh_view))
+            ButtonText(stringResource(R.string.zone_refresh_view))
         }
     }
 }
@@ -372,35 +434,37 @@ private fun ZoneRow(zone: Zone, onClick: () -> Unit, onCheck: () -> Unit) {
     }
 }
 
-/** Рисование зоны: название, сохранить, удалить. */
+/**
+ * Рисование зоны на одном экране. По вертикали кадр забирает оставшуюся высоту,
+ * по горизонтали он слева, название и кнопки — справа.
+ */
 @Composable
-private fun EditPanel(state: ZonesUiState, actions: ZonesActions) {
-    val edited = state.edited ?: return
-    var confirmDelete by remember { mutableStateOf(false) }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text(stringResource(R.string.zone_delete)) },
-            text = { Text(stringResource(R.string.zone_delete_confirm)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    actions.delete()
-                }) { Text(stringResource(R.string.common_continue)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_close)) }
-            },
-        )
+private fun EditLayout(state: ZonesUiState, actions: ZonesActions, landscape: Boolean, modifier: Modifier) {
+    if (landscape) {
+        Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                state.errorRes?.let { MessageBanner(text = stringResource(it)) }
+                FrameView(state = state, actions = actions, fit = Modifier.weight(1f))
+            }
+            Column(modifier = Modifier.width(280.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                NameField(state = state, actions = actions)
+                Spacer(Modifier.weight(1f))
+                EditActions(state = state, actions = actions)
+            }
+        }
+    } else {
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            state.errorRes?.let { MessageBanner(text = stringResource(it)) }
+            FrameView(state = state, actions = actions, fit = Modifier.weight(1f))
+            NameField(state = state, actions = actions)
+        }
     }
+}
 
-    Text(
-        text = stringResource(if (edited.id == null) R.string.zone_new_title else R.string.zone_edit_title),
-        style = MaterialTheme.typography.titleMedium,
-    )
+@Composable
+private fun NameField(state: ZonesUiState, actions: ZonesActions) {
     OutlinedTextField(
-        value = edited.name,
+        value = state.edited?.name.orEmpty(),
         onValueChange = actions.setName,
         label = { Text(stringResource(R.string.zone_name)) },
         singleLine = true,
@@ -408,13 +472,40 @@ private fun EditPanel(state: ZonesUiState, actions: ZonesActions) {
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         modifier = Modifier.fillMaxWidth(),
     )
-    state.problemRes?.let { MessageBanner(text = stringResource(it)) }
-    PrimaryButton(text = stringResource(R.string.zone_save), onClick = actions.save, loading = state.saving, enabled = !state.saving)
-    if (edited.id != null) {
-        SecondaryButton(text = stringResource(R.string.zone_delete), onClick = { confirmDelete = true }, enabled = !state.saving)
+}
+
+/** Нижняя панель рисования: что мешает сохранить, «Отмена» и «Сохранить». */
+@Composable
+private fun EditBar(state: ZonesUiState, actions: ZonesActions) {
+    Surface(color = MaterialTheme.colorScheme.background, tonalElevation = 3.dp, shadowElevation = 3.dp) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            EditActions(state = state, actions = actions)
+        }
     }
-    TextButton(onClick = actions.cancelEdit, modifier = Modifier.fillMaxWidth()) {
-        Text(stringResource(R.string.zone_cancel))
+}
+
+/** Что мешает сохранить, «Отмена» и «Сохранить». */
+@Composable
+private fun EditActions(state: ZonesUiState, actions: ZonesActions) {
+    state.problemRes?.let { MessageBanner(text = stringResource(it)) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = actions.cancelEdit, modifier = Modifier.weight(1f)) {
+            ButtonText(stringResource(R.string.zone_cancel))
+        }
+        PrimaryButton(
+            text = stringResource(R.string.zone_save),
+            onClick = actions.save,
+            loading = state.saving,
+            enabled = !state.saving,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

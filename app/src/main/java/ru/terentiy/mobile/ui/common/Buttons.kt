@@ -17,6 +17,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.unit.isSpecified
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.text.BasicText
 
 /**
  * Кнопки-пилюли из макетов: крупные, полностью скруглённые, во всю ширину.
@@ -83,6 +91,25 @@ private fun ButtonLabel(text: String, loading: Boolean, indicatorColor: Color) {
                 color = indicatorColor,
             )
         }
-        Text(text = text, style = MaterialTheme.typography.labelLarge)
+        ButtonText(text = text, style = MaterialTheme.typography.labelLarge)
     }
 }
+
+/**
+ * Подпись кнопки всегда в одну строку. Не помещается — шрифт уменьшается (до 9 sp),
+ * а не переносится: на маленьком телефоне кнопки просто мельче.
+ */
+@Composable
+fun ButtonText(text: String, style: TextStyle = LocalTextStyle.current) {
+    val maxSize = if (style.fontSize.isSpecified) style.fontSize else 14.sp
+    BasicText(
+        text = text,
+        style = style.copy(color = LocalContentColor.current),
+        maxLines = 1,
+        softWrap = false,
+        autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = maxSize, stepSize = 0.5.sp),
+    )
+}
+
+/** Отступы текстовой кнопки в ряду из нескольких: меньше стандартных, чтобы подписи не мельчили зря. */
+val CompactButtonPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
