@@ -1,6 +1,7 @@
 package ru.terentiy.mobile.domain
 
 import java.time.Instant
+import java.time.LocalTime
 import kotlin.math.abs
 
 /**
@@ -23,7 +24,57 @@ data class Zone(
     val referenceMediaId: String,
     val state: ZoneState,
     val version: Int,
+    /**
+     * Номер правки: меняется при любом изменении зоны, уходит в PATCH. [version] —
+     * версия разметки: меняется только при перерисовке, на неё ссылается проверка.
+     */
+    val revision: Int = 1,
+    /** Переключатель: выключенная зона хранится, но тревог не даёт. */
+    val enabled: Boolean = true,
+    /** Условия тревоги. Приложение показывает и меняет первое; остальные сохраняет как есть. */
+    val rules: List<ZoneRule> = listOf(ZoneRule()),
+) {
+    /** Правило, которое видит пользователь. У зоны без правил — значение по умолчанию. */
+    val rule: ZoneRule get() = rules.firstOrNull() ?: ZoneRule()
+}
+
+/**
+ * Условие тревоги зоны. [schedule] — `null`, если правило действует всегда.
+ * [id] — `null` у правила, которого ещё нет на сервере.
+ */
+data class ZoneRule(
+    val id: String? = null,
+    val trigger: ZoneTrigger = ZoneTrigger.ENTER,
+    val schedule: ZoneSchedule? = null,
 )
+
+/** Что считается тревогой: человек вошёл в зону или вышел из неё. */
+enum class ZoneTrigger(val wire: String) {
+    ENTER("enter"),
+    EXIT("exit");
+
+    companion object {
+        fun parse(raw: String?): ZoneTrigger = entries.firstOrNull { it.wire == raw } ?: ENTER
+    }
+}
+
+/**
+ * Ежедневный промежуток, когда правило действует: с [from] до [to] по местному
+ * времени. Если [to] раньше [from], промежуток идёт через полночь
+ * (22:00–07:00). Начало входит в промежуток, конец — нет.
+ */
+data class ZoneSchedule(val from: LocalTime, val to: LocalTime) {
+
+    val overnight: Boolean get() = to < from
+
+    /** Пустой промежуток: начало совпадает с концом. Такой не сохраняется. */
+    val empty: Boolean get() = from == to
+
+    companion object {
+        /** Предлагается, когда пользователь включает «Только в заданное время». */
+        val DEFAULT_NIGHT = ZoneSchedule(LocalTime.of(22, 0), LocalTime.of(7, 0))
+    }
+}
 
 data class ZonePoint(val x: Float, val y: Float)
 
@@ -101,12 +152,29 @@ data class CurrentFrame(
     val height: Int,
 )
 
-/** Что рисует и сохраняет редактор: тело создания или замены зоны. */
+/** Новая зона: контур на кадре [referenceFrameId], переключатель и условия тревоги. */
 data class ZoneDraft(
     val name: String,
     val polygon: List<ZonePoint>,
     val referenceFrameId: String,
+    val enabled: Boolean = true,
+    val rules: List<ZoneRule> = listOf(ZoneRule()),
 )
+
+/**
+ * Частичная правка зоны: `null` — поле не меняется. [redraw] — новый контур на
+ * текущем кадре; только он сбрасывает проверку зоны. [rules] заменяет список целиком.
+ */
+data class ZonePatch(
+    val name: String? = null,
+    val redraw: ZoneRedraw? = null,
+    val enabled: Boolean? = null,
+    val rules: List<ZoneRule>? = null,
+) {
+    val empty: Boolean get() = name == null && redraw == null && enabled == null && rules == null
+}
+
+data class ZoneRedraw(val polygon: List<ZonePoint>, val referenceFrameId: String)
 
 /** Проверка контура — те же правила, что на сервере: ошибка видна до отправки. */
 object ZoneGeometry {

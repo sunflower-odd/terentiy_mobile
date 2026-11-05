@@ -110,26 +110,64 @@ data class ZoneDto(
     @SerialName("reference_media_id") val referenceMediaId: String = "",
     val state: String = "draft",
     val version: Int = 1,
+    val revision: Int = 1,
+    val enabled: Boolean = true,
+    /** `null` — сервер без правил (до 0004_zone_rules): у зоны правило по умолчанию. */
+    val rules: List<ZoneRuleDto>? = null,
 )
 
 @Serializable
 data class ZoneListDto(val items: List<ZoneDto> = emptyList())
 
-/** Тело `POST …/zones`. Лишних полей сервер не принимает (`additionalProperties: false`). */
+/**
+ * Условие тревоги — и в ответе, и в теле запроса. В запросе [ruleId] сохраняет
+ * идентификатор прежнего правила; у нового правила его нет. Нет [schedule] —
+ * правило действует всегда.
+ */
+@Serializable
+data class ZoneRuleDto(
+    @SerialName("rule_id") val ruleId: String? = null,
+    val trigger: String,
+    val schedule: ZoneScheduleDto? = null,
+)
+
+/** Время — `HH:mm` в часовом поясе [timeZone] (IANA, например `Europe/Moscow`). */
+@Serializable
+data class ZoneScheduleDto(
+    val from: String,
+    val to: String,
+    @SerialName("time_zone") val timeZone: String,
+)
+
+/**
+ * Тело `POST …/zones`. Лишних полей сервер не принимает (`additionalProperties: false`).
+ * [enabled] и [rules], равные значениям сервера по умолчанию (включена, «вход,
+ * всегда»), Json приложения не отправляет: такую зону примет и сервер без правил.
+ */
 @Serializable
 data class ZoneRequestDto(
     val name: String,
     val polygon: List<List<Double>>,
     @SerialName("reference_frame_id") val referenceFrameId: String,
+    val enabled: Boolean = true,
+    val rules: List<ZoneRuleDto> = DEFAULT_ZONE_RULES,
 )
 
-/** Тело `PUT …/zones/{zone_id}`: то же плюс версия, которую редактировали. */
+/** Правило новой зоны на сервере, если `rules` не передан. */
+val DEFAULT_ZONE_RULES: List<ZoneRuleDto> = listOf(ZoneRuleDto(trigger = "enter"))
+
+/**
+ * Тело `PATCH …/zones/{zone_id}`: [revision] и только изменённые поля — `null`
+ * не отправляется. [polygon] и [referenceFrameId] — только вместе.
+ */
 @Serializable
-data class ZoneUpdateRequestDto(
-    val name: String,
-    val polygon: List<List<Double>>,
-    @SerialName("reference_frame_id") val referenceFrameId: String,
-    val version: Int,
+data class ZonePatchRequestDto(
+    val revision: Int,
+    val name: String? = null,
+    val polygon: List<List<Double>>? = null,
+    @SerialName("reference_frame_id") val referenceFrameId: String? = null,
+    val enabled: Boolean? = null,
+    val rules: List<ZoneRuleDto>? = null,
 )
 
 /** Тело `POST …/binding-sessions`: версия зоны, которую пользователь только что видел. */

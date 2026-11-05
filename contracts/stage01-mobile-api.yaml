@@ -1,58 +1,152 @@
 # ВНИМАНИЕ: синхронизированная копия. Оригинал принадлежит репозиторию terentiy_ai.
 # Источник: terentiy_ai/contracts/openapi/mobile-server.openapi.yaml
-# Коммит источника: 712afd2 (2026-10-16), версия 2.0.0-draft — критические зоны.
-# Синхронизировано: 2026-10-21
+# Коммит источника: 6bc7243 (2026-11-04) + PR «зоны: переключатель и правила
+# тревоги» (не слит), версия 2.0.0-draft.
+# Синхронизировано: 2026-11-05
 # Правки вносятся в terentiy_ai и переносятся сюда целиком, а не наоборот.
 #
-# Черновик описывает только зоны. Маршруты падений (/api/v1/events и др.) в
-# нём не перечислены, но на сервере работают как в 1.0.0 — приложение их
-# использует без изменений. Все маршруты зон на сервере реализованы; сессии
-# привязки (binding-sessions) приложение пока не вызывает.
+# Черновик описывает /health, вход и зоны. Маршруты падений (/api/v1/events и
+# др.) в нём не перечислены, но на сервере работают как в 1.0.0 — приложение
+# их использует без изменений.
 #
-# Не описано в контракте, но проверяется сервером: reference_frame_id при
-# создании и правке зоны должен быть текущим кадром камеры — не старше
-# server.agent_offline_after_seconds (30 с), иначе 422 invalid_reference_frame.
+# Расхождения с сервером:
+# - /health описан как ok/degraded с checked_at и issues; сервер пока отдаёт
+#   прежний ответ {status, database}. Приложение работает по прежнему.
+# - reference_frame_id при создании и перерисовке зоны должен быть текущим
+#   кадром камеры — не старше server.agent_offline_after_seconds (30 с), иначе
+#   422 invalid_reference_frame. В контракте этого нет.
+# - PUT …/zones/{zone_id} приложение не использует: правка зоны — PATCH.
 
 openapi: 3.1.0
 info:
-  title: Terentiy Mobile Server API
+  title: API сервера для мобильного приложения Терентия
   version: 2.0.0-draft
   description: |
     Первый этап критических зон: пользователь размечает площадку пола перед
     дверью, а сервер подтверждает, что на свежих кадрах действительно видит
     опорную точку человека внутри площадки.
 
-    Сервер является единственным источником истины для pose, опорной точки,
+    Сервер является единственным источником истины для оценки позы, опорной точки,
     попадания в полигон и результата привязки. Мобильное приложение только
-    рисует контур и показывает возвращённый маркер. Edge-агент продолжает
+    рисует контур и показывает возвращённый маркер. Периферийный агент продолжает
     публиковать кадры по своему существующему протоколу; этот контракт его не
     изменяет.
 servers:
   - url: http://127.0.0.1:8080
-    description: Local development or a server reachable on the home LAN.
+    description: Локальная разработка или сервер в домашней сети.
 tags:
   - name: Diagnostics
+    description: Диагностика
   - name: Authentication
+    description: Аутентификация
   - name: Agents
+    description: Агенты и камеры
   - name: Zones
+    description: Зоны
   - name: Media
+    description: Медиафайлы
 paths:
   /health:
     get:
       tags: [Diagnostics]
-      summary: Check server availability
+      summary: Получить общую готовность наблюдения
+      description: |
+        Авторизация не требуется. Сервер проверяет БД, медиахранилище,
+        готовность worker, размер очереди обработки и доступность камер.
+        Проверка охватывает всех зарегистрированных агентов без раскрытия их идентификаторов.
+
+        Фоновый монитор выполняет цикл не реже раза в 5 секунд независимо
+        от запросов клиента. Проверки БД и хранилища ограничены по времени.
+        Хотя бы один worker должен загрузить модели и подтвердить готовность
+        за последние 15 секунд, даже при пустой очереди обработки.
+        Готовность worker передаётся независимо от получения задач и lease агента.
+
+        processing_delayed возникает, когда общее число задач ML в состояниях
+        queued и running превышает серверный лимит очереди N. Задачи completed
+        и failed не учитываются. Причина снимается, когда число задач не больше N.
+        N — неотрицательное целое число, заданное на сервере. Клиент
+        не вычисляет задержку и не оценивает время обработки.
+
+        У каждого зарегистрированного агента должен быть свежий heartbeat
+        в пределах заданного на сервере срока; agent_online, camera_connected
+        и stream_active должны быть true. Иначе возвращается camera_unavailable.
+        Эти поля и last_frame_at поступают по существующему протоколу статуса
+        агента. Клиент не выполняет дополнительных проверок устройства и камеры.
+
+        Полный цикл мониторинга не старше 15 секунд позволяет вернуть HTTP 200:
+        ok, если все проверки успешны; degraded, если есть хотя бы одна проблема.
+        checked_at — время завершения цикла, а не время HTTP-запроса.
+        До завершения первого цикла, при результате старше 15 секунд
+        или невозможности определить состояние возвращается HTTP 503.
+        Непредвиденная внутренняя ошибка возвращается как HTTP 500.
+        Устаревший ok нельзя выдавать как актуальный.
+        Все ответы проверки состояния запрещено кешировать (Cache-Control: no-store).
+
+        На главном экране клиент опрашивает сервер раз в 5 секунд с таймаутом
+        5 секунд и обновляет состояние после возвращения в приложение.
+        Только корректный HTTP 200 со статусом ok подтверждает работу наблюдения.
+        degraded, код кроме 200, сетевая ошибка, таймаут или некорректное тело
+        ответа означают недоступность. Без нового успешного опроса результат
+        не подтверждает готовность спустя 15 секунд.
       operationId: health
+      security: []
       responses:
         '200':
-          description: Server is available.
+          description: Готовность наблюдения определена.
+          headers:
+            Cache-Control:
+              description: Результаты проверки состояния запрещено кешировать.
+              schema: { type: string, const: no-store }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Health' }
+              examples:
+                operational:
+                  value:
+                    status: ok
+                    checked_at: '2026-10-26T12:00:00Z'
+                    issues: []
+                processingUnavailable:
+                  value:
+                    status: degraded
+                    checked_at: '2026-10-26T12:00:00Z'
+                    issues: [processing_unavailable]
+                processingDelayed:
+                  value:
+                    status: degraded
+                    checked_at: '2026-10-26T12:00:00Z'
+                    issues: [processing_delayed]
+                cameraUnavailable:
+                  value:
+                    status: degraded
+                    checked_at: '2026-10-26T12:00:00Z'
+                    issues: [camera_unavailable]
+        '503':
+          description: Состояние наблюдения не определено; мониторинг запускается, устарел или недоступен.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                monitoringUnavailable:
+                  value:
+                    code: health_unavailable
+                    message: Невозможно определить состояние наблюдения.
+        '500':
+          description: Непредвиденная внутренняя ошибка.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/v1/mobile/activate:
     post:
       tags: [Authentication]
-      summary: Activate a mobile device in a household
+      summary: Активировать мобильное устройство в домохозяйстве
       operationId: activateMobile
       requestBody:
         required: true
@@ -61,7 +155,7 @@ paths:
             schema: { $ref: '#/components/schemas/MobileActivationRequest' }
       responses:
         '201':
-          description: Device activated and bearer token issued.
+          description: Устройство активировано, токен доступа выдан.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MobileToken' }
@@ -72,7 +166,7 @@ paths:
   /api/v1/mobile/login:
     post:
       tags: [Authentication]
-      summary: Log in an activated mobile device
+      summary: Выполнить вход с активированного мобильного устройства
       operationId: loginMobile
       requestBody:
         required: true
@@ -81,7 +175,7 @@ paths:
             schema: { $ref: '#/components/schemas/MobileLoginRequest' }
       responses:
         '200':
-          description: Bearer token issued.
+          description: Токен доступа выдан.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MobileToken' }
@@ -91,12 +185,12 @@ paths:
   /api/v1/agents:
     get:
       tags: [Agents]
-      summary: List cameras available to the household
+      summary: Получить список камер домохозяйства
       operationId: listAgents
       security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: Household agents.
+          description: Агенты домохозяйства.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AgentList' }
@@ -105,11 +199,11 @@ paths:
   /api/v1/agents/{agent_id}/cameras/{camera_id}/current-frame:
     get:
       tags: [Agents]
-      summary: Get the latest camera frame for drawing or checking a zone
+      summary: Получить последний кадр камеры для разметки или проверки зоны
       description: |
-        The returned frame_id is immutable. It must be supplied as
-        reference_frame_id when a zone is created or redrawn. Download the
-        JPEG through GET /api/v1/media/{media_id}.
+        Возвращённый frame_id неизменяем. Его необходимо передать как
+        reference_frame_id при создании или перерисовке зоны.
+        JPEG загружается через GET /api/v1/media/{media_id}.
       operationId: getCurrentFrame
       security: [{ bearerAuth: [] }]
       parameters:
@@ -117,13 +211,13 @@ paths:
         - $ref: '#/components/parameters/CameraId'
       responses:
         '200':
-          description: Latest frame metadata.
+          description: Метаданные последнего кадра.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CurrentFrame' }
         '401': { $ref: '#/components/responses/ServiceError' }
         '404':
-          description: agent_not_found or camera_unavailable.
+          description: agent_not_found или camera_unavailable.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -131,7 +225,7 @@ paths:
   /api/v1/agents/{agent_id}/cameras/{camera_id}/zones:
     get:
       tags: [Zones]
-      summary: List door zones
+      summary: Получить список зон перед дверью
       operationId: listZones
       security: [{ bearerAuth: [] }]
       parameters:
@@ -139,7 +233,7 @@ paths:
         - $ref: '#/components/parameters/CameraId'
       responses:
         '200':
-          description: Zones of the camera, including binding state.
+          description: Зоны камеры и состояние их привязки.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ZoneList' }
@@ -147,11 +241,13 @@ paths:
         '404': { $ref: '#/components/responses/ServiceError' }
     post:
       tags: [Zones]
-      summary: Create an unbound door zone
+      summary: Создать зону перед дверью без привязки
       description: |
-        Creates only a floor polygon and its reference frame. The new zone is
-        draft and produces no monitoring result until a binding session reaches
-        bound. The polygon is in normalized coordinates of reference_frame_id.
+        Создаёт полигон на полу, его опорный кадр, переключатель и условия
+        тревоги. Новая зона имеет состояние draft и не даёт результатов
+        наблюдения до перехода сессии привязки в bound. Полигон задан
+        в нормализованных координатах reference_frame_id. Без enabled зона
+        включена; без rules получает одно правило: тревога при входе, всегда.
       operationId: createZone
       security: [{ bearerAuth: [] }]
       parameters:
@@ -164,14 +260,14 @@ paths:
             schema: { $ref: '#/components/schemas/ZoneRequest' }
       responses:
         '201':
-          description: Draft zone created with version 1.
+          description: Создан черновик зоны с версией 1.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Zone' }
         '401': { $ref: '#/components/responses/ServiceError' }
         '404': { $ref: '#/components/responses/ServiceError' }
         '422':
-          description: invalid_zone, invalid_reference_frame, or zone_limit_reached.
+          description: invalid_zone, invalid_reference_frame или zone_limit_reached.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -179,7 +275,7 @@ paths:
   /api/v1/agents/{agent_id}/cameras/{camera_id}/zones/{zone_id}:
     get:
       tags: [Zones]
-      summary: Get one door zone
+      summary: Получить зону перед дверью
       operationId: getZone
       security: [{ bearerAuth: [] }]
       parameters:
@@ -188,7 +284,7 @@ paths:
         - $ref: '#/components/parameters/ZoneId'
       responses:
         '200':
-          description: Current zone.
+          description: Текущее состояние зоны.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Zone' }
@@ -196,11 +292,12 @@ paths:
         '404': { $ref: '#/components/responses/ServiceError' }
     put:
       tags: [Zones]
-      summary: Replace a door zone drawing
+      summary: Заменить разметку зоны перед дверью
       description: |
-        Requires the current version. Any changed polygon or reference frame
-        invalidates the old binding and changes state to draft; the caller then
-        starts a new binding session.
+        Полная перерисовка. Требуется текущая версия. Изменение полигона или
+        опорного кадра аннулирует привязку и переводит зону в draft; затем
+        клиент запускает новую сессию привязки. Переключатель и правила этим
+        методом не меняются — для них и для частичной правки служит PATCH.
       operationId: updateZone
       security: [{ bearerAuth: [] }]
       parameters:
@@ -214,21 +311,68 @@ paths:
             schema: { $ref: '#/components/schemas/ZoneUpdateRequest' }
       responses:
         '200':
-          description: Zone replaced and any old binding invalidated.
+          description: Разметка зоны заменена, прежняя привязка аннулирована.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Zone' }
         '401': { $ref: '#/components/responses/ServiceError' }
         '404': { $ref: '#/components/responses/ServiceError' }
         '409':
-          description: zone_version_conflict or zone_binding_in_progress.
+          description: zone_version_conflict или zone_binding_in_progress.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ServiceError' }
+    patch:
+      tags: [Zones]
+      summary: Изменить часть зоны
+      description: |
+        Меняется только переданное. Требуется текущий revision — иначе
+        409 zone_revision_conflict.
+
+        polygon и reference_frame_id передаются только вместе: это перерисовка.
+        Она требует текущего кадра камеры, увеличивает version, аннулирует
+        привязку и переводит зону в draft; во время сессии привязки —
+        409 zone_binding_in_progress.
+
+        name, enabled и rules привязку и version не меняют и допустимы во
+        время сессии привязки. rules заменяет список правил целиком; rule_id
+        прежнего правила сохраняет его идентификатор.
+
+        Любое изменение увеличивает revision. Тело только с revision ничего
+        не меняет и возвращает зону.
+      operationId: patchZone
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CameraId'
+        - $ref: '#/components/parameters/ZoneId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZonePatchRequest' }
+      responses:
+        '200':
+          description: Зона после изменения.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Zone' }
+        '401': { $ref: '#/components/responses/ServiceError' }
+        '404': { $ref: '#/components/responses/ServiceError' }
+        '409':
+          description: zone_revision_conflict или zone_binding_in_progress.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: invalid_request, invalid_zone или invalid_reference_frame.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     delete:
       tags: [Zones]
-      summary: Delete a door zone
+      summary: Удалить зону перед дверью
       operationId: deleteZone
       security: [{ bearerAuth: [] }]
       parameters:
@@ -236,19 +380,19 @@ paths:
         - $ref: '#/components/parameters/CameraId'
         - $ref: '#/components/parameters/ZoneId'
       responses:
-        '204': { description: Zone and any unfinished binding session deleted. }
+        '204': { description: Зона и её незавершённая сессия привязки удалены. }
         '401': { $ref: '#/components/responses/ServiceError' }
         '404': { $ref: '#/components/responses/ServiceError' }
 
   /api/v1/agents/{agent_id}/cameras/{camera_id}/zones/{zone_id}/binding-sessions:
     post:
       tags: [Zones]
-      summary: Start server-side binding of a door zone
+      summary: Запустить серверную привязку зоны перед дверью
       description: |
-        The user stands on the marked floor area. The server pose worker uses
-        fresh camera frames, computes a support point and tests it against the
-        polygon. Neither keypoints nor a client-computed point are accepted.
-        At most one non-terminal session exists for one zone.
+        Пользователь встаёт на отмеченную площадку пола. Серверный worker
+        оценки позы использует свежие кадры, вычисляет опорную точку и проверяет
+        её попадание в полигон. Ключевые точки и вычисленная клиентом точка не принимаются.
+        У одной зоны может быть не более одной незавершённой сессии.
       operationId: startZoneBindingSession
       security: [{ bearerAuth: [] }]
       parameters:
@@ -262,7 +406,7 @@ paths:
             schema: { $ref: '#/components/schemas/StartZoneBindingRequest' }
       responses:
         '201':
-          description: Binding started; poll the session resource.
+          description: Привязка запущена; опрашивайте ресурс сессии.
           headers:
             Location:
               schema: { type: string }
@@ -272,12 +416,12 @@ paths:
         '401': { $ref: '#/components/responses/ServiceError' }
         '404': { $ref: '#/components/responses/ServiceError' }
         '409':
-          description: zone_version_conflict, zone_binding_in_progress, or zone_already_bound.
+          description: zone_version_conflict, zone_binding_in_progress или zone_already_bound.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '422':
-          description: camera_unavailable or invalid_zone.
+          description: camera_unavailable или invalid_zone.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -285,13 +429,13 @@ paths:
   /api/v1/agents/{agent_id}/cameras/{camera_id}/zones/{zone_id}/binding-sessions/{binding_session_id}:
     get:
       tags: [Zones]
-      summary: Get server-side binding progress
+      summary: Получить ход серверной привязки
       description: |
-        Poll while the person is standing in the zone. last_observation gives
-        the application a marker to draw over its JPEG. in_zone is decided by
-        the server and must not be recalculated by the mobile client.
+        Опрос выполняется, пока человек стоит в зоне. last_observation содержит
+        маркер для отображения поверх JPEG. Значение in_zone определяет сервер;
+        мобильный клиент не должен вычислять его повторно.
 
-        The UI uses state, not the numeric observation counters, as its text:
+        Текст интерфейса определяется state, а не числом наблюдений:
         waiting_for_frame — «Получаем вид с камеры»;
         waiting_for_person — «Встаньте в отмеченное место»;
         collecting — «Проверяем положение…»;
@@ -305,7 +449,7 @@ paths:
         - $ref: '#/components/parameters/BindingSessionId'
       responses:
         '200':
-          description: Progress or final result.
+          description: Ход привязки или итоговый результат.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ZoneBindingSession' }
@@ -313,7 +457,7 @@ paths:
         '404': { $ref: '#/components/responses/ServiceError' }
     delete:
       tags: [Zones]
-      summary: Cancel a pending binding session
+      summary: Отменить незавершённую сессию привязки
       operationId: cancelZoneBindingSession
       security: [{ bearerAuth: [] }]
       parameters:
@@ -322,21 +466,21 @@ paths:
         - $ref: '#/components/parameters/ZoneId'
         - $ref: '#/components/parameters/BindingSessionId'
       responses:
-        '204': { description: Session cancelled or already terminal. }
+        '204': { description: Сессия отменена или уже завершена. }
         '401': { $ref: '#/components/responses/ServiceError' }
         '404': { $ref: '#/components/responses/ServiceError' }
 
   /api/v1/media/{media_id}:
     get:
       tags: [Media]
-      summary: Download a camera JPEG
+      summary: Скачать JPEG-кадр камеры
       operationId: downloadMedia
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: '#/components/parameters/MediaId'
       responses:
         '200':
-          description: JPEG frame belonging to the household.
+          description: JPEG-кадр домохозяйства.
           content:
             image/jpeg:
               schema: { type: string, format: binary }
@@ -359,7 +503,7 @@ components:
       name: camera_id
       in: path
       required: true
-      description: Camera selected from the agent record; the server verifies that it belongs to agent_id.
+      description: Камера из записи агента; сервер проверяет её принадлежность agent_id.
       schema: { type: string, minLength: 1 }
     ZoneId:
       name: zone_id
@@ -378,16 +522,66 @@ components:
       schema: { type: string, format: uuid }
   responses:
     ServiceError:
-      description: Stable application error.
+      description: Ошибка приложения с постоянным кодом.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
   schemas:
     Health:
       type: object
-      required: [status]
+      required: [status, checked_at, issues]
+      description: |
+        Общая готовность наблюдения, включая агентов и камеры.
+        Для ok список проблем пуст; для degraded нужна хотя бы одна проблема.
+        Возвращаются только полные результаты мониторинга не старше 15 секунд.
       properties:
-        status: { type: string, const: ok }
+        status:
+          type: string
+          enum: [ok, degraded]
+        checked_at:
+          type: string
+          format: date-time
+          description: UTC-время завершения последнего полного цикла мониторинга.
+        issues:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/HealthIssue' }
+      allOf:
+        - if:
+            properties:
+              status: { const: ok }
+          then:
+            properties:
+              issues: { maxItems: 0 }
+        - if:
+            properties:
+              status: { const: degraded }
+          then:
+            properties:
+              issues: { minItems: 1 }
+    HealthIssue:
+      type: string
+      description: |
+        database_unavailable: проверка связи с БД завершилась ошибкой или таймаутом.
+        media_storage_unavailable: не удалось записать и прочитать собственный
+        проверочный файл в медиахранилище; пользовательские файлы не изменяются.
+        processing_unavailable: нет готового worker с загруженными моделями
+        и heartbeat готовности не старше 15 секунд. Все worker не запущены,
+        загружают модели, не прошли инициализацию, остановлены, аварийно завершились,
+        перестали подтверждать готовность или сообщили о невозможности обработки.
+        Пустая очередь или ошибка отдельного кадра сами по себе не вызывают эту причину.
+        processing_delayed: общее число задач ML в queued и running превышает
+        лимит очереди N; причина снимается, когда число задач не больше N.
+        Задачи completed и failed исключены; повторные попытки в queued учитываются.
+        camera_unavailable: хотя бы у одного зарегистрированного агента нет статуса,
+        heartbeat устарел по заданному на сервере сроку либо agent_online,
+        camera_connected или stream_active равен false.
+      enum:
+        - database_unavailable
+        - media_storage_unavailable
+        - processing_unavailable
+        - processing_delayed
+        - camera_unavailable
 
     MobileActivationRequest:
       type: object
@@ -425,7 +619,7 @@ components:
         name: { type: string }
         camera_id:
           type: string
-          description: Pass together with agent_id in every camera and zone request.
+          description: Передаётся вместе с agent_id в каждом запросе к камере или зоне.
         online: { type: boolean }
 
     CurrentFrame:
@@ -441,9 +635,9 @@ components:
     ZonePolygon:
       type: array
       description: |
-        Clockwise or counter-clockwise vertices in normalized image coordinates.
-        The server rejects self-intersection and area smaller than 0.5% of the
-        reference frame.
+        Вершины в нормализованных координатах изображения по часовой стрелке
+        или против неё. Сервер отклоняет самопересечения и полигон площадью
+        менее 0,5% опорного кадра.
       minItems: 3
       maxItems: 12
       items:
@@ -461,7 +655,77 @@ components:
         reference_frame_id:
           type: string
           format: uuid
-          description: Immutable frame returned by current-frame before drawing.
+          description: Неизменяемый кадр, полученный через current-frame до начала разметки.
+        enabled:
+          type: boolean
+          default: true
+          description: Переключатель зоны. Выключенная зона хранится, но тревог не даёт.
+        rules:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/ZoneRuleRequest' }
+          description: Условия тревоги. Без поля — одно правило «вход, всегда»; пустой список — тревог нет.
+    ZonePatchRequest:
+      type: object
+      additionalProperties: false
+      required: [revision]
+      properties:
+        revision:
+          type: integer
+          minimum: 1
+          description: revision зоны, которую пользователь видит на экране.
+        name: { type: string, minLength: 1, maxLength: 40 }
+        polygon: { $ref: '#/components/schemas/ZonePolygon' }
+        reference_frame_id:
+          type: string
+          format: uuid
+          description: Текущий кадр камеры; только вместе с polygon.
+        enabled: { type: boolean }
+        rules:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/ZoneRuleRequest' }
+      dependentRequired:
+        polygon: [reference_frame_id]
+        reference_frame_id: [polygon]
+    ZoneRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [trigger]
+      properties:
+        rule_id:
+          type: string
+          format: uuid
+          description: Только в PATCH — сохранить идентификатор существующего правила этой зоны.
+        trigger: { $ref: '#/components/schemas/ZoneRuleTrigger' }
+        schedule: { $ref: '#/components/schemas/ZoneSchedule' }
+    ZoneRule:
+      type: object
+      required: [rule_id, trigger]
+      properties:
+        rule_id: { type: string, format: uuid }
+        trigger: { $ref: '#/components/schemas/ZoneRuleTrigger' }
+        schedule: { $ref: '#/components/schemas/ZoneSchedule' }
+    ZoneRuleTrigger:
+      type: string
+      enum: [enter, exit]
+      description: enter — человек вошёл в зону; exit — человек вышел из зоны.
+    ZoneSchedule:
+      type: object
+      additionalProperties: false
+      required: [from, to, time_zone]
+      description: |
+        Ежедневный промежуток, когда правило действует. Нет schedule — правило
+        действует всегда. Если to раньше from, промежуток идёт через полночь
+        (22:00–07:00 — до 07:00 следующего дня). from входит в промежуток,
+        to — нет; from и to не совпадают.
+      properties:
+        from: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', example: '22:00' }
+        to: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', example: '07:00' }
+        time_zone:
+          type: string
+          example: Europe/Moscow
+          description: Часовой пояс IANA, в котором заданы from и to.
     ZoneUpdateRequest:
       type: object
       additionalProperties: false
@@ -475,7 +739,7 @@ components:
         version: { type: integer, minimum: 1 }
     Zone:
       type: object
-      required: [zone_id, agent_id, camera_id, name, polygon, reference_frame_id, reference_media_id, state, version, created_at, updated_at]
+      required: [zone_id, agent_id, camera_id, name, polygon, reference_frame_id, reference_media_id, state, version, revision, enabled, rules, created_at, updated_at]
       properties:
         zone_id: { type: string, format: uuid }
         agent_id: { type: string, format: uuid }
@@ -487,7 +751,18 @@ components:
         state:
           type: string
           enum: [draft, binding, bound]
-        version: { type: integer, minimum: 1 }
+        version:
+          type: integer
+          minimum: 1
+          description: Версия разметки; меняется только при перерисовке. На неё ссылается сессия привязки.
+        revision:
+          type: integer
+          minimum: 1
+          description: Номер правки; меняется при любом изменении зоны. Передаётся в PATCH.
+        enabled: { type: boolean }
+        rules:
+          type: array
+          items: { $ref: '#/components/schemas/ZoneRule' }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     ZoneList:
@@ -506,7 +781,7 @@ components:
         zone_version:
           type: integer
           minimum: 1
-          description: Version that the user has just reviewed on the screen.
+          description: Версия, которую пользователь только что проверил на экране.
     ZoneBindingSession:
       type: object
       required: [binding_session_id, zone_id, zone_version, state, started_at, expires_at, progress, binding, failure]
@@ -518,11 +793,11 @@ components:
           type: string
           enum: [waiting_for_frame, waiting_for_person, collecting, bound, failed, expired, cancelled]
           description: |
-            Stable presentation state. Mobile maps it to its own localized
-            text and illustration: waiting_for_frame — receiving a camera
-            view; waiting_for_person — ask the person to stand in the marked
-            area; collecting — checking position; bound — success. failed,
-            expired and cancelled finish the setup attempt.
+            Состояние для отображения в интерфейсе. Приложение выбирает
+            локализованные текст и иллюстрацию: waiting_for_frame — получение
+            изображения; waiting_for_person — просьба встать на отмеченное место;
+            collecting — проверка положения; bound — успех. failed,
+            expired и cancelled завершают попытку настройки.
         started_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
         progress: { $ref: '#/components/schemas/ZoneBindingProgress' }
@@ -542,12 +817,12 @@ components:
           type: integer
           minimum: 0
           description: |
-            Technical diagnostic counter. Do not display it as «N of M» to a
-            user; use ZoneBindingSession.state for the user-facing status.
+            Технический диагностический счётчик. Не показывать пользователю
+            как «N из M»; статус интерфейса определяется ZoneBindingSession.state.
         required_observations:
           type: integer
           minimum: 1
-          description: Technical server configuration, fixed for this session and not a mobile setting.
+          description: Техническая настройка сервера, фиксированная для сессии; не является настройкой приложения.
         last_observation:
           oneOf:
             - $ref: '#/components/schemas/ZoneAnchorObservation'
@@ -563,14 +838,14 @@ components:
         quality:
           type: string
           enum: [full, degraded]
-          description: degraded means an allowed fallback was used.
+          description: degraded означает использование допустимого запасного способа.
         in_zone:
           type: boolean
           description: |
-            Authoritative server point-in-polygon result. While a session is
-            non-terminal, false means the UI keeps the setup open and asks the
-            person to make a step into the highlighted area; it is not a
-            failed setup result.
+            Результат проверки попадания точки в полигон, определённый сервером.
+            Пока сессия не завершена, false означает, что интерфейс продолжает
+            настройку и просит человека шагнуть в выделенную область;
+            это не означает неудачную настройку.
     NormalizedPoint:
       type: object
       required: [x, y]

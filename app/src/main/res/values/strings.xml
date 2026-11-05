@@ -182,4 +182,23 @@
     <string name="zones_limit">Можно добавить не больше 10 зон</string>
     <string name="zones_no_agent">Камера не подключена — зоны размечать не на чем.</string>
     <string name="zones_title">Критические зоны</string>
+    <string name="zone_enabled">Зона включена</string>
+    <string name="zone_alert">Режим тревоги</string>
+    <string name="zone_alert_title">Режим тревоги: «%1$s»</string>
+    <string name="zone_alert_when_person">Когда поднимать тревогу</string>
+    <string name="zone_alert_enter">Человек вошёл в зону</string>
+    <string name="zone_alert_exit">Человек вышел из зоны</string>
+    <string name="zone_alert_time">Время</string>
+    <string name="zone_alert_always">Всегда</string>
+    <string name="zone_alert_scheduled">Только в заданное время</string>
+    <string name="zone_alert_from">с %1$s</string>
+    <string name="zone_alert_to">до %1$s</string>
+    <string name="zone_alert_overnight">До %1$s следующего дня</string>
+    <string name="zone_alert_problem_empty">Начало и конец совпадают — выберите разное время</string>
+    <string name="zone_alert_save">Сохранить</string>
+    <string name="zone_alert_summary_off">Выключена — тревог не будет</string>
+    <string name="zone_alert_summary_enter_always">Тревога при входе, всегда</string>
+    <string name="zone_alert_summary_exit_always">Тревога при выходе, всегда</string>
+    <string name="zone_alert_summary_enter_window">Тревога при входе, с %1$s до %2$s</string>
+    <string name="zone_alert_summary_exit_window">Тревога при выходе, с %1$s до %2$s</string>
 </resources>

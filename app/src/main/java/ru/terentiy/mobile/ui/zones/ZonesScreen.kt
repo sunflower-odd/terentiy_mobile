@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -61,6 +62,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -71,6 +74,8 @@ import ru.terentiy.mobile.core.time.TimeFormat
 import ru.terentiy.mobile.domain.Zone
 import ru.terentiy.mobile.domain.ZonePoint
 import ru.terentiy.mobile.domain.ZoneState
+import ru.terentiy.mobile.domain.ZoneTrigger
+import java.time.LocalTime
 import ru.terentiy.mobile.ui.common.IconArrowBack
 import ru.terentiy.mobile.ui.common.IconExpand
 import ru.terentiy.mobile.ui.common.MessageBanner
@@ -103,6 +108,15 @@ fun ZonesScreen(
             cancelCheck = viewModel::cancelCheck,
             closeCheck = viewModel::closeCheck,
             retryCheck = viewModel::retryCheck,
+            setZoneEnabled = viewModel::setZoneEnabled,
+            openAlert = viewModel::openAlert,
+            openDraftAlert = viewModel::openDraftAlert,
+            closeAlert = viewModel::closeAlert,
+            setAlertTrigger = viewModel::setAlertTrigger,
+            setAlertScheduled = viewModel::setAlertScheduled,
+            setAlertFrom = viewModel::setAlertFrom,
+            setAlertTo = viewModel::setAlertTo,
+            saveAlert = viewModel::saveAlert,
         ),
     )
 }
@@ -124,6 +138,15 @@ class ZonesActions(
     val cancelCheck: () -> Unit = {},
     val closeCheck: () -> Unit = {},
     val retryCheck: () -> Unit = {},
+    val setZoneEnabled: (String, Boolean) -> Unit = { _, _ -> },
+    val openAlert: (String) -> Unit = {},
+    val openDraftAlert: () -> Unit = {},
+    val closeAlert: () -> Unit = {},
+    val setAlertTrigger: (ZoneTrigger) -> Unit = {},
+    val setAlertScheduled: (Boolean) -> Unit = {},
+    val setAlertFrom: (LocalTime) -> Unit = {},
+    val setAlertTo: (LocalTime) -> Unit = {},
+    val saveAlert: () -> Unit = {},
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -161,6 +184,8 @@ fun ZonesContent(
             },
         )
     }
+
+    state.alertEditor?.let { ZoneAlertDialog(editor = it, actions = actions) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -290,6 +315,7 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions, fit: Modifier?
 
     val fill = MaterialTheme.colorScheme.primary
     val other = MaterialTheme.colorScheme.tertiary
+    val off = MaterialTheme.colorScheme.outline
     val vertex = MaterialTheme.colorScheme.onPrimary
     val points by rememberUpdatedState(state.edited?.points.orEmpty())
     val radius = with(LocalDensity.current) { 24.dp.toPx() }
@@ -337,7 +363,9 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions, fit: Modifier?
             )
             Canvas(modifier = Modifier.fillMaxSize().then(drawing)) {
                 val toScreen = { p: ZonePoint -> Offset(p.x * size.width, p.y * size.height) }
-                state.shownZones.forEach { zone -> drawZone(zone.polygon, other, filled = false, toScreen = toScreen) }
+                state.shownZones.forEach { zone ->
+                    drawZone(zone.polygon, if (zone.enabled) other else off, filled = false, toScreen = toScreen)
+                }
                 state.edited?.let { edited ->
                     drawZone(edited.points, fill, filled = true, toScreen = toScreen)
                     drawVertices(edited.points, fill, vertex, toScreen = toScreen)
@@ -394,7 +422,7 @@ private fun ZoneList(state: ZonesUiState, actions: ZonesActions) {
         )
     }
     state.zones.forEach { zone ->
-        ZoneRow(zone = zone, onClick = { actions.edit(zone.id) }, onCheck = { actions.startCheck(zone.id) })
+        ZoneRow(zone = zone, switching = zone.id in state.switchingZoneIds, actions = actions)
     }
     PrimaryButton(text = stringResource(R.string.zones_add), onClick = actions.startNew, enabled = state.canAdd)
     if (!state.canAdd) {
@@ -406,29 +434,56 @@ private fun ZoneList(state: ZonesUiState, actions: ZonesActions) {
     }
 }
 
+/**
+ * Зона в списке: название, проверена ли, что считается тревогой и
+ * переключатель. Касание строки открывает рисование, «Режим тревоги» — настройки.
+ */
 @Composable
-private fun ZoneRow(zone: Zone, onClick: () -> Unit, onCheck: () -> Unit) {
+private fun ZoneRow(zone: Zone, switching: Boolean, actions: ZonesActions) {
+    val switchLabel = stringResource(R.string.zone_enabled)
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable { actions.edit(zone.id) },
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = zone.name, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = stringResource(zone.state.textRes()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = zone.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (zone.enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(zone.state.textRes()),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = zone.enabled,
+                    onCheckedChange = { actions.setZoneEnabled(zone.id, it) },
+                    enabled = !switching,
+                    modifier = Modifier.padding(start = 8.dp).semantics { contentDescription = switchLabel },
                 )
             }
-            // Проверить можно только непроверенную зону: проверенную сервер повторно
-            // не проверяет, а перерисовка сама сбрасывает её в «не проверена».
-            if (zone.state == ZoneState.DRAFT) {
-                TextButton(onClick = onCheck) { Text(stringResource(R.string.zone_check)) }
+            Text(
+                text = alertSummary(zone.rule, zone.enabled),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { actions.openAlert(zone.id) }, contentPadding = CompactButtonPadding) {
+                    ButtonText(stringResource(R.string.zone_alert))
+                }
+                // Проверить можно только непроверенную зону: проверенную сервер повторно
+                // не проверяет, а перерисовка сама сбрасывает её в «не проверена».
+                if (zone.state == ZoneState.DRAFT) {
+                    TextButton(onClick = { actions.startCheck(zone.id) }, contentPadding = CompactButtonPadding) {
+                        ButtonText(stringResource(R.string.zone_check))
+                    }
+                }
             }
         }
     }
@@ -448,6 +503,7 @@ private fun EditLayout(state: ZonesUiState, actions: ZonesActions, landscape: Bo
             }
             Column(modifier = Modifier.width(280.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 NameField(state = state, actions = actions)
+                AlertRow(state = state, actions = actions)
                 Spacer(Modifier.weight(1f))
                 EditActions(state = state, actions = actions)
             }
@@ -457,6 +513,24 @@ private fun EditLayout(state: ZonesUiState, actions: ZonesActions, landscape: Bo
             state.errorRes?.let { MessageBanner(text = stringResource(it)) }
             FrameView(state = state, actions = actions, fit = Modifier.weight(1f))
             NameField(state = state, actions = actions)
+            AlertRow(state = state, actions = actions)
+        }
+    }
+}
+
+/** Условие тревоги зоны, которую рисуют: одной строкой, без прокрутки экрана. */
+@Composable
+private fun AlertRow(state: ZonesUiState, actions: ZonesActions) {
+    val rule = state.edited?.rule ?: return
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = alertSummary(rule, enabled = true),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = actions.openDraftAlert, enabled = !state.saving, contentPadding = CompactButtonPadding) {
+            ButtonText(stringResource(R.string.zone_alert))
         }
     }
 }

@@ -6,7 +6,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
-import retrofit2.http.PUT
+import retrofit2.http.PATCH
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Streaming
@@ -76,12 +76,17 @@ interface TerentiyApi {
         @Body body: ZoneRequestDto,
     ): ZoneDto
 
-    @PUT("api/v1/agents/{agentId}/cameras/{cameraId}/zones/{zoneId}")
-    suspend fun updateZone(
+    /**
+     * Частичная правка зоны: имя, контур (сбрасывает проверку), переключатель,
+     * правила. Требует текущий `revision`. `PUT` (полная перерисовка) приложение
+     * не использует.
+     */
+    @PATCH("api/v1/agents/{agentId}/cameras/{cameraId}/zones/{zoneId}")
+    suspend fun patchZone(
         @Path("agentId") agentId: String,
         @Path("cameraId") cameraId: String,
         @Path("zoneId") zoneId: String,
-        @Body body: ZoneUpdateRequestDto,
+        @Body body: ZonePatchRequestDto,
     ): ZoneDto
 
     /** `204` без тела: `Response<Unit>`, иначе конвертер попытается разобрать пустоту. */

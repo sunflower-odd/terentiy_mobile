@@ -24,6 +24,8 @@ import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
 import java.util.UUID
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZonePatch
+import ru.terentiy.mobile.domain.ZoneRule
 import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.ZoneGeometry
@@ -310,8 +312,8 @@ class DemoEventsRepository @Inject constructor(
 
 /**
  * Зоны в показе без сервера: живут в памяти до конца процесса и отвечают по
- * тем же правилам, что сервер по контракту (версии, лимит, перерисовка
- * сбрасывает состояние в «не проверена»). Вид с камеры — демо-кадр события.
+ * тем же правилам, что сервер по контракту (номер правки, лимит, только
+ * перерисовка сбрасывает состояние в «не проверена» и поднимает версию). Вид с камеры — демо-кадр события.
  */
 @Singleton
 class DemoZonesRepository @Inject constructor() : ZonesRepository {
@@ -351,24 +353,30 @@ class DemoZonesRepository @Inject constructor() : ZonesRepository {
                 referenceMediaId = DemoScenario.DEMO_FRAME_MEDIA_ID,
                 state = ZoneState.DRAFT,
                 version = 1,
+                enabled = draft.enabled,
+                rules = draft.rules.withIds(),
             ).also { zones += it }
         }
     }
 
-    override suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone {
+    override suspend fun patch(agentId: String, cameraId: String, zoneId: String, revision: Int, patch: ZonePatch): Zone {
         delay(DemoScenario.NETWORK_FEEL_MS)
         return mutex.withLock {
             val index = zones.indexOfFirst { it.id == zoneId && it.agentId == agentId && it.cameraId == cameraId }
             if (index < 0) throw AppError.ZoneNotFound
             val zone = zones[index]
-            if (zone.version != version) throw AppError.ZoneConflict
-            val redrawn = zone.polygon != draft.polygon || zone.referenceFrameId != draft.referenceFrameId
+            if (zone.revision != revision) throw AppError.ZoneConflict
+            if (patch.empty) return@withLock zone
+            val redraw = patch.redraw
             zone.copy(
-                name = draft.name.trim(),
-                polygon = draft.polygon,
-                referenceFrameId = draft.referenceFrameId,
-                state = if (redrawn) ZoneState.DRAFT else zone.state,
-                version = zone.version + 1,
+                name = patch.name?.trim() ?: zone.name,
+                polygon = redraw?.polygon ?: zone.polygon,
+                referenceFrameId = redraw?.referenceFrameId ?: zone.referenceFrameId,
+                state = if (redraw != null) ZoneState.DRAFT else zone.state,
+                version = if (redraw != null) zone.version + 1 else zone.version,
+                revision = zone.revision + 1,
+                enabled = patch.enabled ?: zone.enabled,
+                rules = patch.rules?.withIds() ?: zone.rules,
             ).also { zones[index] = it }
         }
     }
@@ -377,6 +385,9 @@ class DemoZonesRepository @Inject constructor() : ZonesRepository {
         delay(DemoScenario.NETWORK_FEEL_MS)
         mutex.withLock { zones.removeAll { it.id == zoneId } }
     }
+
+    /** Как сервер: новое правило получает идентификатор, прежнее сохраняет свой. */
+    private fun List<ZoneRule>.withIds(): List<ZoneRule> = map { it.copy(id = it.id ?: UUID.randomUUID().toString()) }
 
     // Проверка зоны — это распознавание человека на живых кадрах камеры; её не
     // имитируем: проверять экран нужно с сервером в демо-режиме (видеофайл вместо камеры).
