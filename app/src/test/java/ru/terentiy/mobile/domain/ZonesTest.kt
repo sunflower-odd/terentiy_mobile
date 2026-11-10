@@ -6,7 +6,6 @@ import org.junit.Test
 import ru.terentiy.mobile.data.remote.ZoneDto
 import ru.terentiy.mobile.data.remote.toDomain
 import ru.terentiy.mobile.data.remote.toRequest
-import ru.terentiy.mobile.data.remote.toUpdateRequest
 
 /** Проверка контура и разбор зон по контракту mobile-server 2.0.0-draft. */
 class ZonesTest {
@@ -54,6 +53,9 @@ class ZonesTest {
         assertEquals("Дверь", create.name)
         assertEquals(0.123457, create.polygon.single()[0], 1e-9)
         assertEquals("f1", create.referenceFrameId)
-        assertEquals(4, draft.toUpdateRequest(version = 4).version)
+        assertEquals(true, create.enabled)
+        assertEquals("enter", create.rules.single().trigger)
+        assertEquals("Дверь", ZonePatch(name = " Дверь ").toRequest(revision = 4).name)
+        assertEquals(4, ZonePatch(enabled = false).toRequest(revision = 4).revision)
     }
 }

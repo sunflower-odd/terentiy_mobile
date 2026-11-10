@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalTime
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Duration.Companion.milliseconds
@@ -29,6 +30,9 @@ import ru.terentiy.mobile.data.repository.ZonesRepository
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZonePatch
+import ru.terentiy.mobile.domain.ZoneRedraw
+import ru.terentiy.mobile.domain.ZoneRule
 import ru.terentiy.mobile.domain.ZoneBindingFailure
 import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneBindingState
@@ -36,15 +40,26 @@ import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.ZoneGeometry
 import ru.terentiy.mobile.domain.ZoneObservation
 import ru.terentiy.mobile.domain.ZonePoint
+import ru.terentiy.mobile.domain.ZoneSchedule
+import ru.terentiy.mobile.domain.ZoneState
+import ru.terentiy.mobile.domain.ZoneTrigger
 import timber.log.Timber
 
-/** Зона, которую сейчас рисуют. [id] и [version] — `null` у новой зоны. */
+/**
+ * Зона, которую сейчас рисуют. [id] и [revision] — `null` у новой зоны.
+ * [original] — зона, какой её открыли: по ней видно, что изменилось.
+ */
 data class EditedZone(
     val id: String? = null,
-    val version: Int? = null,
+    val revision: Int? = null,
     val name: String = "",
     val points: List<ZonePoint> = emptyList(),
-)
+    val rule: ZoneRule = ZoneRule(),
+    val original: Zone? = null,
+) {
+    /** Контур изменён: при сохранении нужен свежий кадр, проверка зоны сбросится. */
+    val redrawn: Boolean get() = original == null || points != original.polygon
+}
 
 /**
  * Проверка зоны на экране. [state] — `null`, пока сервер не ответил на запуск.
@@ -89,6 +104,25 @@ data class ZoneCheck(
     }
 }
 
+/**
+ * Окно «Режим тревоги»: что считать тревогой и в какое время. [zoneId] — зона из
+ * списка, сохраняется сразу; `null` — зона, которую сейчас рисуют, правило
+ * уходит вместе с ней. [schedule] хранится и при «Всегда» — чтобы при повторном
+ * выборе «В заданное время» вернулось введённое. [errorRes] — сбой сохранения.
+ */
+data class AlertEditor(
+    val zoneId: String?,
+    val zoneName: String,
+    val trigger: ZoneTrigger,
+    val scheduled: Boolean,
+    val schedule: ZoneSchedule,
+    val saving: Boolean = false,
+    @param:StringRes val errorRes: Int? = null,
+) {
+    /** Начало и конец совпадают — промежуток пустой, сохранять нечего. */
+    val problemRes: Int? get() = if (scheduled && schedule.empty) R.string.zone_alert_problem_empty else null
+}
+
 data class ZonesUiState(
     val loading: Boolean = true,
     val noAgent: Boolean = false,
@@ -105,6 +139,10 @@ data class ZonesUiState(
     @param:StringRes val problemRes: Int? = null,
     /** Идёт или закончилась проверка зоны; `null` — экран зон в обычном виде. */
     val check: ZoneCheck? = null,
+    /** Открытое окно настроек тревоги; `null` — закрыто. */
+    val alertEditor: AlertEditor? = null,
+    /** Зоны, у которых переключатель сейчас сохраняется на сервере. */
+    val switchingZoneIds: Set<String> = emptySet(),
 ) {
     val editing: Boolean get() = edited != null
     val canAdd: Boolean get() = !loading && !noAgent && !editing && check == null && zones.size < ZoneGeometry.MAX_ZONES
@@ -121,7 +159,8 @@ data class ZonesUiState(
             edited == other.edited && (frame?.contentEquals(other.frame) ?: (other.frame == null)) &&
             frameId == other.frameId && frameCapturedAt == other.frameCapturedAt &&
             frameLoading == other.frameLoading && saving == other.saving &&
-            errorRes == other.errorRes && problemRes == other.problemRes && check == other.check
+            errorRes == other.errorRes && problemRes == other.problemRes && check == other.check &&
+            alertEditor == other.alertEditor && switchingZoneIds == other.switchingZoneIds
     }
 
     override fun hashCode(): Int {
@@ -131,6 +170,7 @@ data class ZonesUiState(
         result = 31 * result + (frame?.contentHashCode() ?: 0)
         result = 31 * result + loading.hashCode() + frameLoading.hashCode() + saving.hashCode()
         result = 31 * result + (check?.hashCode() ?: 0)
+        result = 31 * result + (alertEditor?.hashCode() ?: 0) + switchingZoneIds.hashCode()
         return result
     }
 }
@@ -143,6 +183,11 @@ data class ZonesUiState(
  * включает рисование. Зоны хранятся на сервере. Непроверенную зону можно
  * проверить: человек встаёт в неё, сервер по свежим кадрам подтверждает, что
  * видит его внутри (см. [startCheck]).
+ *
+ * У каждой зоны есть переключатель и условие тревоги: вход или выход, всегда
+ * или в заданный промежуток (см. [openAlert], [setZoneEnabled]). Новая зона
+ * уходит на сервер вместе с условием; правка — частичная (PATCH): проверку
+ * зоны сбрасывает только изменённый контур.
  *
  * Камера одна на дом, поэтому берётся первый агент — как на главном экране.
  */
@@ -215,7 +260,11 @@ class ZonesViewModel @Inject constructor(
         if (_state.value.check != null) return
         val zone = _state.value.zones.firstOrNull { it.id == zoneId } ?: return
         _state.update {
-            it.copy(edited = EditedZone(zone.id, zone.version, zone.name, zone.polygon), problemRes = null, errorRes = null)
+            it.copy(
+                edited = EditedZone(zone.id, zone.revision, zone.name, zone.polygon, zone.rule, original = zone),
+                problemRes = null,
+                errorRes = null,
+            )
         }
         if (_state.value.frameId == zone.referenceFrameId) return
         _state.update { it.copy(frameLoading = true) }
@@ -257,7 +306,7 @@ class ZonesViewModel @Inject constructor(
         if (state.saving) return
         val problem = when {
             edited.name.isBlank() -> R.string.zone_problem_name
-            state.frameId == null -> R.string.zone_no_frame
+            edited.redrawn && state.frameId == null -> R.string.zone_no_frame
             else -> when (ZoneGeometry.problem(edited.points)) {
                 ZoneGeometry.Problem.TOO_FEW_POINTS -> R.string.zone_problem_few_points
                 ZoneGeometry.Problem.TOO_MANY_POINTS -> R.string.zone_problem_many_points
@@ -270,25 +319,46 @@ class ZonesViewModel @Inject constructor(
             _state.update { it.copy(problemRes = problem) }
             return
         }
+        val original = edited.original
+        val revision = edited.revision
+        val patch = if (original != null) {
+            ZonePatch(
+                name = edited.name.trim().takeIf { it != original.name },
+                rules = if (edited.rule != original.rule) listOf(edited.rule) + original.rules.drop(1) else null,
+            )
+        } else {
+            null
+        }
+        if (patch != null && patch.empty && !edited.redrawn) {
+            _state.update { it.copy(edited = null, problemRes = null) }
+            return
+        }
         _state.update { it.copy(saving = true, errorRes = null) }
         viewModelScope.launch {
             try {
                 // Сервер принимает `reference_frame_id` только от текущего кадра
-                // камеры (не старше 30 с) — и при создании, и при правке. Кадр,
-                // на котором рисовали, к этому моменту обычно уже старый, а у
-                // правки это вообще кадр, на котором зону создали. Камера
-                // неподвижна, а вершины заданы в долях кадра, поэтому контур
-                // переносится на свежий кадр без пересчёта.
-                val fresh = zonesRepository.currentFrame(agent, camera)
-                val draft = ZoneDraft(name = edited.name, polygon = edited.points, referenceFrameId = fresh.frameId)
-                if (edited.id == null || edited.version == null) {
+                // камеры (не старше 30 с). Кадр, на котором рисовали, к этому
+                // моменту обычно уже старый, а у правки это вообще кадр, на котором
+                // зону создали. Камера неподвижна, а вершины заданы в долях кадра,
+                // поэтому контур переносится на свежий кадр без пересчёта. Без
+                // нового контура кадр не нужен: имя и тревогу можно поменять и
+                // при выключенной камере.
+                val fresh = if (edited.redrawn) zonesRepository.currentFrame(agent, camera) else null
+                if (original == null || revision == null || patch == null) {
+                    val draft = ZoneDraft(
+                        name = edited.name,
+                        polygon = edited.points,
+                        referenceFrameId = checkNotNull(fresh).frameId,
+                        rules = listOf(edited.rule),
+                    )
                     zonesRepository.create(agent, camera, draft)
                 } else {
-                    zonesRepository.update(agent, camera, edited.id, edited.version, draft)
+                    val redraw = fresh?.let { ZoneRedraw(edited.points, it.frameId) }
+                    zonesRepository.patch(agent, camera, original.id, revision, patch.copy(redraw = redraw))
                 }
                 val zones = zonesRepository.zones(agent, camera)
                 _state.update { it.copy(saving = false, edited = null, zones = zones) }
-                showFrame(fresh)
+                fresh?.let { showFrame(it) }
             } catch (error: AppError) {
                 _state.update { it.copy(saving = false, errorRes = error.messageRes()) }
             }
@@ -325,6 +395,121 @@ class ZonesViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Включить или выключить зону. Переключатель меняется сразу; если сервер
+     * не сохранил — возвращается назад и показывается ошибка.
+     */
+    fun setZoneEnabled(zoneId: String, enabled: Boolean) {
+        val agent = agentId ?: return
+        val camera = cameraId ?: return
+        val state = _state.value
+        if (zoneId in state.switchingZoneIds) return
+        val zone = state.zones.firstOrNull { it.id == zoneId } ?: return
+        if (zone.enabled == enabled || zone.state != ZoneState.BOUND) return
+        _state.update {
+            it.copy(
+                zones = it.zones.map { item -> if (item.id == zoneId) item.copy(enabled = enabled) else item },
+                switchingZoneIds = it.switchingZoneIds + zoneId,
+                errorRes = null,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val saved = zonesRepository.patch(agent, camera, zoneId, zone.revision, ZonePatch(enabled = enabled))
+                _state.update { it.copy(zones = it.zones.replaceZone(saved), switchingZoneIds = it.switchingZoneIds - zoneId) }
+            } catch (error: AppError) {
+                _state.update {
+                    it.copy(
+                        zones = it.zones.map { item -> if (item.id == zoneId) item.copy(enabled = zone.enabled) else item },
+                        switchingZoneIds = it.switchingZoneIds - zoneId,
+                        errorRes = error.messageRes(),
+                    )
+                }
+                if (error == AppError.ZoneConflict) refreshZones()
+            }
+        }
+    }
+
+    /** Тревога зоны из списка: сохраняется сразу, проверку зоны не сбрасывает. */
+    fun openAlert(zoneId: String) {
+        val state = _state.value
+        if (state.editing || state.check != null) return
+        val zone = state.zones.firstOrNull { it.id == zoneId } ?: return
+        _state.update { it.copy(alertEditor = alertEditor(zone.id, zone.name, zone.rule)) }
+    }
+
+    /** Тревога зоны, которую сейчас рисуют: уходит на сервер вместе с ней. */
+    fun openDraftAlert() {
+        val edited = _state.value.edited ?: return
+        _state.update { it.copy(alertEditor = alertEditor(null, edited.name.trim(), edited.rule)) }
+    }
+
+    private fun alertEditor(zoneId: String?, name: String, rule: ZoneRule) = AlertEditor(
+        zoneId = zoneId,
+        zoneName = name,
+        trigger = rule.trigger,
+        scheduled = rule.schedule != null,
+        schedule = rule.schedule ?: ZoneSchedule.DEFAULT_NIGHT,
+    )
+
+    fun closeAlert() {
+        if (_state.value.alertEditor?.saving == true) return
+        _state.update { it.copy(alertEditor = null) }
+    }
+
+    fun setAlertTrigger(trigger: ZoneTrigger) = changeAlert { it.copy(trigger = trigger) }
+
+    fun setAlertScheduled(scheduled: Boolean) = changeAlert { it.copy(scheduled = scheduled) }
+
+    fun setAlertFrom(time: LocalTime) = changeAlert { it.copy(schedule = it.schedule.copy(from = time)) }
+
+    fun setAlertTo(time: LocalTime) = changeAlert { it.copy(schedule = it.schedule.copy(to = time)) }
+
+    /**
+     * Меняется первое правило зоны, остальные (если их задали не в приложении)
+     * сохраняются как есть. Идентификатор правила сохраняется.
+     */
+    fun saveAlert() {
+        val editor = _state.value.alertEditor ?: return
+        if (editor.saving || editor.problemRes != null) return
+        val zoneId = editor.zoneId
+        if (zoneId == null) {
+            _state.update { state ->
+                val edited = state.edited ?: return@update state.copy(alertEditor = null)
+                state.copy(edited = edited.copy(rule = editor.applyTo(edited.rule)), alertEditor = null)
+            }
+            return
+        }
+        val agent = agentId ?: return
+        val camera = cameraId ?: return
+        val zone = _state.value.zones.firstOrNull { it.id == zoneId } ?: return
+        val rules = listOf(editor.applyTo(zone.rule)) + zone.rules.drop(1)
+        _state.update { it.copy(alertEditor = editor.copy(saving = true, errorRes = null)) }
+        viewModelScope.launch {
+            try {
+                val saved = zonesRepository.patch(agent, camera, zone.id, zone.revision, ZonePatch(rules = rules))
+                _state.update { it.copy(zones = it.zones.replaceZone(saved), alertEditor = null) }
+            } catch (error: AppError) {
+                _state.update { state ->
+                    state.copy(alertEditor = state.alertEditor?.copy(saving = false, errorRes = error.messageRes()))
+                }
+                if (error == AppError.ZoneConflict) refreshZones()
+            }
+        }
+    }
+
+    private fun AlertEditor.applyTo(rule: ZoneRule): ZoneRule =
+        rule.copy(trigger = trigger, schedule = schedule.takeIf { scheduled })
+
+    private fun changeAlert(transform: (AlertEditor) -> AlertEditor) {
+        _state.update { state ->
+            val editor = state.alertEditor?.takeUnless { it.saving } ?: return@update state
+            state.copy(alertEditor = transform(editor).copy(errorRes = null))
+        }
+    }
+
+    private fun List<Zone>.replaceZone(zone: Zone): List<Zone> = map { if (it.id == zone.id) zone else it }
 
     /**
      * Проверка зоны (сессия привязки, mobile-server 2.0.0-draft).

@@ -26,6 +26,7 @@ import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.FallEvent
 import ru.terentiy.mobile.domain.MediaPayload
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZonePatch
 import ru.terentiy.mobile.domain.ZoneBindingFailure
 import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneBindingState
@@ -76,7 +77,7 @@ class ZonesViewModelCheckTest {
         override suspend fun currentFrame(agentId: String, cameraId: String) = CurrentFrame("frame-1", "media-ref", null, 640, 480)
         override suspend fun zones(agentId: String, cameraId: String) = list
         override suspend fun create(agentId: String, cameraId: String, draft: ZoneDraft) = error("not used")
-        override suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft) = error("not used")
+        override suspend fun patch(agentId: String, cameraId: String, zoneId: String, revision: Int, patch: ZonePatch) = error("not used")
         override suspend fun delete(agentId: String, cameraId: String, zoneId: String) = Unit
 
         override suspend fun startBinding(agentId: String, cameraId: String, zoneId: String, version: Int): ZoneBindingSession {

@@ -9,6 +9,7 @@ import ru.terentiy.mobile.domain.SessionState
 import ru.terentiy.mobile.domain.Zone
 import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneDraft
+import ru.terentiy.mobile.domain.ZonePatch
 
 /**
  * Контракты слоя данных.
@@ -83,8 +84,12 @@ interface ZonesRepository {
 
     suspend fun create(agentId: String, cameraId: String, draft: ZoneDraft): Zone
 
-    /** [version] — версия, которую редактировали; при расхождении — [ru.terentiy.mobile.core.error.AppError.ZoneConflict]. */
-    suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone
+    /**
+     * Изменить часть зоны. [revision] — номер правки, которую видел пользователь;
+     * при расхождении — [ru.terentiy.mobile.core.error.AppError.ZoneConflict].
+     * Проверку зоны сбрасывает только новый контур ([ZonePatch.redraw]).
+     */
+    suspend fun patch(agentId: String, cameraId: String, zoneId: String, revision: Int, patch: ZonePatch): Zone
 
     suspend fun delete(agentId: String, cameraId: String, zoneId: String)
 

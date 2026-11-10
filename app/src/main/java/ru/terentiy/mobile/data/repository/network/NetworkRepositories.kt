@@ -22,11 +22,11 @@ import ru.terentiy.mobile.data.repository.AgentsRepository
 import ru.terentiy.mobile.data.repository.AuthRepository
 import ru.terentiy.mobile.data.repository.ZonesRepository
 import ru.terentiy.mobile.data.remote.toRequest
-import ru.terentiy.mobile.data.remote.toUpdateRequest
 import ru.terentiy.mobile.data.repository.EventsRepository
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZonePatch
 import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.FallEvent
@@ -190,9 +190,9 @@ class NetworkZonesRepository @Inject constructor(
     override suspend fun create(agentId: String, cameraId: String, draft: ZoneDraft): Zone =
         unsupportedAs(AppError.ZonesUnsupported) { api.createZone(agentId, cameraId, draft.toRequest()).toDomain() }
 
-    override suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone =
+    override suspend fun patch(agentId: String, cameraId: String, zoneId: String, revision: Int, patch: ZonePatch): Zone =
         unsupportedAs(AppError.ZonesUnsupported) {
-            api.updateZone(agentId, cameraId, zoneId, draft.toUpdateRequest(version)).toDomain()
+            api.patchZone(agentId, cameraId, zoneId, patch.toRequest(revision)).toDomain()
         }
 
     override suspend fun delete(agentId: String, cameraId: String, zoneId: String) {
