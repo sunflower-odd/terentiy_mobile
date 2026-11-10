@@ -41,6 +41,7 @@ import ru.terentiy.mobile.domain.ZoneGeometry
 import ru.terentiy.mobile.domain.ZoneObservation
 import ru.terentiy.mobile.domain.ZonePoint
 import ru.terentiy.mobile.domain.ZoneSchedule
+import ru.terentiy.mobile.domain.ZoneState
 import ru.terentiy.mobile.domain.ZoneTrigger
 import timber.log.Timber
 
@@ -405,7 +406,7 @@ class ZonesViewModel @Inject constructor(
         val state = _state.value
         if (zoneId in state.switchingZoneIds) return
         val zone = state.zones.firstOrNull { it.id == zoneId } ?: return
-        if (zone.enabled == enabled) return
+        if (zone.enabled == enabled || zone.state != ZoneState.BOUND) return
         _state.update {
             it.copy(
                 zones = it.zones.map { item -> if (item.id == zoneId) item.copy(enabled = enabled) else item },

@@ -124,6 +124,19 @@ class ZonesViewModelAlertTest {
     }
 
     @Test
+    fun `непроверенную зону включить и выключить нельзя`() = runTest(dispatcher) {
+        zones.list = listOf(zone.copy(state = ZoneState.DRAFT))
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        vm.setZoneEnabled("z1", false)
+        advanceUntilIdle()
+
+        assertTrue(zones.patches.isEmpty())
+        assertFalse(vm.state.value.zones.single().active)
+    }
+
+    @Test
     fun `если сервер не сохранил переключатель, он возвращается назад`() = runTest(dispatcher) {
         val vm = viewModel()
         advanceUntilIdle()

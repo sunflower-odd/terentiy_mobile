@@ -36,6 +36,9 @@ data class Zone(
 ) {
     /** Правило, которое видит пользователь. У зоны без правил — значение по умолчанию. */
     val rule: ZoneRule get() = rules.firstOrNull() ?: ZoneRule()
+
+    /** Зона следит: проверена и включена. Непроверенную включить нельзя. */
+    val active: Boolean get() = enabled && state == ZoneState.BOUND
 }
 
 /**

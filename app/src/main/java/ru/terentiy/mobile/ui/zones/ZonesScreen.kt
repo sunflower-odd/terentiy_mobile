@@ -364,7 +364,7 @@ private fun FrameView(state: ZonesUiState, actions: ZonesActions, fit: Modifier?
             Canvas(modifier = Modifier.fillMaxSize().then(drawing)) {
                 val toScreen = { p: ZonePoint -> Offset(p.x * size.width, p.y * size.height) }
                 state.shownZones.forEach { zone ->
-                    drawZone(zone.polygon, if (zone.enabled) other else off, filled = false, toScreen = toScreen)
+                    drawZone(zone.polygon, if (zone.active) other else off, filled = false, toScreen = toScreen)
                 }
                 state.edited?.let { edited ->
                     drawZone(edited.points, fill, filled = true, toScreen = toScreen)
@@ -452,18 +452,20 @@ private fun ZoneRow(zone: Zone, switching: Boolean, actions: ZonesActions) {
                     Text(
                         text = zone.name,
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (zone.enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (zone.active) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = stringResource(zone.state.textRes()),
+                        text = stringResource(if (zone.state == ZoneState.DRAFT) R.string.zone_switch_after_check else zone.state.textRes()),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // Включить можно только проверенную зону: непроверенная ничего не
+                // отслеживает, её переключатель выключен и неактивен.
                 Switch(
-                    checked = zone.enabled,
+                    checked = zone.active,
                     onCheckedChange = { actions.setZoneEnabled(zone.id, it) },
-                    enabled = !switching,
+                    enabled = !switching && zone.state == ZoneState.BOUND,
                     modifier = Modifier.padding(start = 8.dp).semantics { contentDescription = switchLabel },
                 )
             }

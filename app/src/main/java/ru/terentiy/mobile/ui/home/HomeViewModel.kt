@@ -34,9 +34,7 @@ data class HomeUiState(
     val alert: FallEvent? = null,
     val firstLoad: Boolean = true,
     @param:StringRes val errorRes: Int? = null,
-) {
-    val agent: Agent? get() = agents.firstOrNull()
-}
+)
 
 /**
  * Главный экран.
