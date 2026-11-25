@@ -2,8 +2,11 @@ package ru.terentiy.mobile.data.remote
 
 import java.time.Instant
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -14,10 +17,14 @@ import kotlinx.serialization.json.jsonObject
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZoneSchedule
+import ru.terentiy.mobile.domain.ZoneTrigger
 import ru.terentiy.mobile.domain.ZoneBindingFailure
 import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.ZoneBindingState
 import ru.terentiy.mobile.domain.ZoneDraft
+import ru.terentiy.mobile.domain.ZonePatch
+import ru.terentiy.mobile.domain.ZoneRule
 import ru.terentiy.mobile.domain.ZoneObservation
 import ru.terentiy.mobile.domain.ZonePoint
 import ru.terentiy.mobile.domain.ZoneState
@@ -95,7 +102,32 @@ fun ZoneDto.toDomain(): Zone = Zone(
     referenceMediaId = referenceMediaId,
     state = ZoneState.parse(state),
     version = version,
+    revision = revision,
+    enabled = enabled,
+    rules = rules?.map { it.toDomain() } ?: listOf(ZoneRule()),
 )
+
+/** Нечитаемое время — как будто промежутка нет: правило действует всегда. */
+fun ZoneRuleDto.toDomain(): ZoneRule = ZoneRule(
+    id = ruleId,
+    trigger = ZoneTrigger.parse(trigger),
+    schedule = schedule?.let { wire ->
+        val from = wire.from.toLocalTimeOrNull() ?: return@let null
+        val to = wire.to.toLocalTimeOrNull() ?: return@let null
+        ZoneSchedule(from, to).takeUnless { it.empty }
+    },
+)
+
+/** [timeZone] — пояс телефона: в нём пользователь задал время. */
+fun ZoneRule.toWire(timeZone: String = ZoneId.systemDefault().id): ZoneRuleDto = ZoneRuleDto(
+    ruleId = id,
+    trigger = trigger.wire,
+    schedule = schedule?.let { ZoneScheduleDto(it.from.format(HOURS_MINUTES), it.to.format(HOURS_MINUTES), timeZone) },
+)
+
+private val HOURS_MINUTES: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+private fun String.toLocalTimeOrNull(): LocalTime? = runCatching { LocalTime.parse(this) }.getOrNull()
 
 fun ZoneListDto.toDomain(): List<Zone> = items.map { it.toDomain() }
 
@@ -122,10 +154,17 @@ fun ZoneBindingSessionDto.toDomain(): ZoneBindingSession = ZoneBindingSession(
     failure = failure?.let { ZoneBindingFailure.parse(it.code) },
 )
 
-fun ZoneDraft.toRequest(): ZoneRequestDto = ZoneRequestDto(name.trim(), polygon.toWire(), referenceFrameId)
+fun ZoneDraft.toRequest(timeZone: String = ZoneId.systemDefault().id): ZoneRequestDto =
+    ZoneRequestDto(name.trim(), polygon.toWire(), referenceFrameId, enabled, rules.map { it.toWire(timeZone) })
 
-fun ZoneDraft.toUpdateRequest(version: Int): ZoneUpdateRequestDto =
-    ZoneUpdateRequestDto(name.trim(), polygon.toWire(), referenceFrameId, version)
+fun ZonePatch.toRequest(revision: Int, timeZone: String = ZoneId.systemDefault().id): ZonePatchRequestDto = ZonePatchRequestDto(
+    revision = revision,
+    name = name?.trim(),
+    polygon = redraw?.polygon?.toWire(),
+    referenceFrameId = redraw?.referenceFrameId,
+    enabled = enabled,
+    rules = rules?.map { it.toWire(timeZone) },
+)
 
 /** Шести знаков после запятой хватает с запасом: это доли пикселя на 4K-кадре. */
 private fun List<ZonePoint>.toWire(): List<List<Double>> = map { listOf(it.x.round6(), it.y.round6()) }

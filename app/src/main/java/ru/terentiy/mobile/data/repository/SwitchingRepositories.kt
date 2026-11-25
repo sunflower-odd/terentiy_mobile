@@ -16,6 +16,7 @@ import ru.terentiy.mobile.data.repository.demo.DemoZonesRepository
 import ru.terentiy.mobile.domain.ZoneDraft
 import ru.terentiy.mobile.domain.CurrentFrame
 import ru.terentiy.mobile.domain.Zone
+import ru.terentiy.mobile.domain.ZonePatch
 import ru.terentiy.mobile.domain.ZoneBindingSession
 import ru.terentiy.mobile.domain.Agent
 import ru.terentiy.mobile.domain.FallEvent
@@ -111,8 +112,8 @@ class SwitchingZonesRepository @Inject constructor(
     override suspend fun create(agentId: String, cameraId: String, draft: ZoneDraft): Zone =
         current().create(agentId, cameraId, draft)
 
-    override suspend fun update(agentId: String, cameraId: String, zoneId: String, version: Int, draft: ZoneDraft): Zone =
-        current().update(agentId, cameraId, zoneId, version, draft)
+    override suspend fun patch(agentId: String, cameraId: String, zoneId: String, revision: Int, patch: ZonePatch): Zone =
+        current().patch(agentId, cameraId, zoneId, revision, patch)
 
     override suspend fun delete(agentId: String, cameraId: String, zoneId: String) =
         current().delete(agentId, cameraId, zoneId)

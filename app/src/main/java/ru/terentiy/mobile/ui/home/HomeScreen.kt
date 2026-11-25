@@ -1,10 +1,11 @@
 package ru.terentiy.mobile.ui.home
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -88,84 +89,91 @@ fun HomeContent(
             return@PullToRefreshBox
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.brand_name),
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = state.userName.takeIf { it.isNotBlank() }
-                    ?.let { stringResource(R.string.home_greeting, it) }
-                    ?: stringResource(R.string.brand_tagline),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            state.errorRes?.let { MessageBanner(text = stringResource(it)) }
-
-            state.alert?.let { alert ->
-                AlertCard(
-                    title = stringResource(R.string.event_fall),
-                    statement = stringResource(R.string.event_basis),
-                    time = alert.capturedAt?.let { TimeFormat.smart(it) }.orEmpty(),
-                    onOpen = { onOpenEvent(alert.id) },
-                    onDismiss = onDismissAlert,
-                )
-            }
-
-            StatusHero(
-                mood = when {
-                    state.alert != null -> HeroMood.ALERT
-                    state.watchState == WatchState.WATCHING -> HeroMood.WATCHING
-                    else -> HeroMood.SLEEPING
-                }
-            )
-
-            Text(
-                text = stringResource(state.watchState.titleRes()),
-                style = MaterialTheme.typography.displaySmall,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                text = stringResource(state.watchState.hintRes()),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-
-            val agent = state.agent
-            if (state.watchState == WatchState.NO_AGENT) {
-                MessageBanner(
-                    text = stringResource(R.string.home_no_agent),
-                    container = MaterialTheme.colorScheme.surfaceVariant,
-                    content = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else if (agent != null) {
+        // Экран без прокрутки: всё помещается на маленьком телефоне. Высота
+        // столбца равна видимой области, поэтому прокручивать нечего, а
+        // verticalScroll нужен только жесту «потянуть, чтобы обновить».
+        // Круг состояния забирает оставшееся место и уменьшается под экран.
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val viewport = maxHeight
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .height(viewport)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Text(
-                    text = agent.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    text = stringResource(R.string.brand_name),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = state.userName.takeIf { it.isNotBlank() }
+                        ?.let { stringResource(R.string.home_greeting, it) }
+                        ?: stringResource(R.string.brand_tagline),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                state.errorRes?.let { MessageBanner(text = stringResource(it)) }
+
+                state.alert?.let { alert ->
+                    AlertCard(
+                        title = stringResource(R.string.event_fall),
+                        statement = stringResource(R.string.event_basis),
+                        time = alert.capturedAt?.let { TimeFormat.smart(it) }.orEmpty(),
+                        onOpen = { onOpenEvent(alert.id) },
+                        onDismiss = onDismissAlert,
+                    )
+                }
+
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    StatusHero(
+                        mood = when {
+                            state.alert != null -> HeroMood.ALERT
+                            state.watchState == WatchState.WATCHING -> HeroMood.WATCHING
+                            else -> HeroMood.SLEEPING
+                        },
+                        size = minOf(maxWidth, maxHeight, 200.dp),
+                    )
+                }
+
+                Text(
+                    text = stringResource(state.watchState.titleRes()),
+                    style = MaterialTheme.typography.headlineMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    text = stringResource(state.watchState.hintRes()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+
+                // Имя агента на экран не выводится: камера одна на дом, а имя задаётся
+                // в конфиге агента и для пользователя техническое.
+                if (state.watchState == WatchState.NO_AGENT) {
+                    MessageBanner(
+                        text = stringResource(R.string.home_no_agent),
+                        container = MaterialTheme.colorScheme.surfaceVariant,
+                        content = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                SecondaryButton(
+                    text = if (state.unseenCount > 0) {
+                        stringResource(R.string.home_history_with_unseen, state.unseenCount)
+                    } else {
+                        stringResource(R.string.home_history)
+                    },
+                    onClick = onOpenHistory,
                 )
             }
-
-            Spacer(Modifier.height(4.dp))
-
-            SecondaryButton(
-                text = if (state.unseenCount > 0) {
-                    stringResource(R.string.home_history_with_unseen, state.unseenCount)
-                } else {
-                    stringResource(R.string.home_history)
-                },
-                onClick = onOpenHistory,
-            )
         }
     }
 }

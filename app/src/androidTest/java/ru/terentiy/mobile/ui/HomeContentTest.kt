@@ -93,7 +93,7 @@ class HomeContentTest {
         )
         compose.onNodeWithText(text(R.string.home_greeting, "Ольга")).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.watch_watching)).assertIsDisplayed()
-        compose.onNodeWithText("Гостиная").assertIsDisplayed()
+        compose.onNodeWithText("Гостиная").assertDoesNotExist()
     }
 
     @Test

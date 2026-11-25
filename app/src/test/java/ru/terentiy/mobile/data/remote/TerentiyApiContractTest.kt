@@ -4,6 +4,7 @@ import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFact
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -324,22 +325,125 @@ class TerentiyApiContractTest {
         val request = server.takeRequest()
         assertEquals("/api/v1/agents/agent-1/cameras/camera-1/zones", request.path)
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        // Правило по умолчанию не отправляется: такую зону примет и сервер без правил.
         assertEquals(setOf("name", "polygon", "reference_frame_id"), body.keys)
         assertEquals("z1", zone.id)
         assertEquals(ru.terentiy.mobile.domain.ZoneState.DRAFT, zone.state)
     }
 
     @Test
-    fun `конфликт версии зоны`() = runTest {
-        respond(409, """{"code":"zone_version_conflict","message":"Zone was changed"}""")
+    fun `новая зона с условием тревоги отправляет rules`() = runTest {
+        respond(201, zoneBody.format(""))
+        val draft = ru.terentiy.mobile.domain.ZoneDraft(
+            name = "Дверь",
+            polygon = listOf(
+                ru.terentiy.mobile.domain.ZonePoint(0.1f, 0.2f),
+                ru.terentiy.mobile.domain.ZonePoint(0.5f, 0.2f),
+                ru.terentiy.mobile.domain.ZonePoint(0.5f, 0.6f),
+            ),
+            referenceFrameId = "frame-1",
+            rules = listOf(ru.terentiy.mobile.domain.ZoneRule(trigger = ru.terentiy.mobile.domain.ZoneTrigger.EXIT)),
+        )
+
+        api.createZone("agent-1", "camera-1", draft.toRequest())
+
+        val body = json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        assertEquals(setOf("name", "polygon", "reference_frame_id", "rules"), body.keys)
+        assertEquals("""[{"trigger":"exit"}]""", body["rules"].toString())
+    }
+
+    @Test
+    fun `конфликт номера правки зоны`() = runTest {
+        respond(409, """{"code":"zone_revision_conflict","message":"Zone was changed since it was read"}""")
 
         val error = runCatching {
             apiCall(errorMapper) {
-                api.updateZone("agent-1", "camera-1", "z1", ZoneUpdateRequestDto("Дверь", emptyList(), "frame-1", 1))
+                api.patchZone("agent-1", "camera-1", "z1", ZonePatchRequestDto(revision = 1, enabled = false))
             }
         }.exceptionOrNull()
 
         assertEquals(AppError.ZoneConflict, error)
+    }
+
+    private val zoneBody = """
+        {"zone_id":"z1","agent_id":"agent-1","camera_id":"camera-1","name":"Дверь",
+         "polygon":[[0.1,0.2],[0.5,0.2],[0.5,0.6]],"reference_frame_id":"frame-1","reference_media_id":"media-1",
+         "state":"bound","version":4%s}
+    """.trimIndent()
+
+    @Test
+    fun `зона сервера без правил — включена, правило «вход, всегда»`() = runTest {
+        respond(200, """{"items":[${zoneBody.format("")}]}""")
+
+        val zone = api.zones("agent-1", "camera-1").toDomain().single()
+
+        assertEquals(true, zone.enabled)
+        assertEquals(listOf(ru.terentiy.mobile.domain.ZoneRule()), zone.rules)
+    }
+
+    @Test
+    fun `переключатель, номер правки и правила читаются из ответа`() = runTest {
+        val extra = ""","revision":7,"enabled":false,"rules":[{"rule_id":"r1","trigger":"exit",""" +
+            """"schedule":{"from":"22:00","to":"07:00","time_zone":"Europe/Moscow"}},{"rule_id":"r2","trigger":"enter"}]"""
+        respond(200, """{"items":[${zoneBody.format(extra)}]}""")
+
+        val zone = api.zones("agent-1", "camera-1").toDomain().single()
+
+        assertEquals(7, zone.revision)
+        assertEquals(false, zone.enabled)
+        assertEquals(
+            ru.terentiy.mobile.domain.ZoneRule(
+                id = "r1",
+                trigger = ru.terentiy.mobile.domain.ZoneTrigger.EXIT,
+                schedule = ru.terentiy.mobile.domain.ZoneSchedule(java.time.LocalTime.of(22, 0), java.time.LocalTime.of(7, 0)),
+            ),
+            zone.rule,
+        )
+        assertEquals(2, zone.rules.size)
+    }
+
+    @Test
+    fun `PATCH отправляет только изменённое`() = runTest {
+        respond(200, zoneBody.format(""))
+
+        api.patchZone("agent-1", "camera-1", "z1", ru.terentiy.mobile.domain.ZonePatch(enabled = false).toRequest(revision = 3))
+
+        val request = server.takeRequest()
+        assertEquals("PATCH", request.method)
+        assertEquals("/api/v1/agents/agent-1/cameras/camera-1/zones/z1", request.path)
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals(setOf("revision", "enabled"), body.keys)
+        assertEquals("3", body["revision"]!!.jsonPrimitive.content)
+        assertEquals("false", body["enabled"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `PATCH с правилами и новым контуром`() = runTest {
+        respond(200, zoneBody.format(""))
+        val patch = ru.terentiy.mobile.domain.ZonePatch(
+            redraw = ru.terentiy.mobile.domain.ZoneRedraw(
+                listOf(ru.terentiy.mobile.domain.ZonePoint(0.1f, 0.2f), ru.terentiy.mobile.domain.ZonePoint(0.5f, 0.2f), ru.terentiy.mobile.domain.ZonePoint(0.5f, 0.6f)),
+                "frame-2",
+            ),
+            rules = listOf(
+                ru.terentiy.mobile.domain.ZoneRule(
+                    id = "r1",
+                    trigger = ru.terentiy.mobile.domain.ZoneTrigger.EXIT,
+                    schedule = ru.terentiy.mobile.domain.ZoneSchedule(java.time.LocalTime.of(22, 0), java.time.LocalTime.of(7, 5)),
+                ),
+                ru.terentiy.mobile.domain.ZoneRule(),
+            ),
+        )
+
+        api.patchZone("agent-1", "camera-1", "z1", patch.toRequest(revision = 2, timeZone = "Europe/Moscow"))
+
+        val body = json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        assertEquals(setOf("revision", "polygon", "reference_frame_id", "rules"), body.keys)
+        assertEquals("frame-2", body["reference_frame_id"]!!.jsonPrimitive.content)
+        assertEquals(
+            """[{"rule_id":"r1","trigger":"exit","schedule":{"from":"22:00","to":"07:05","time_zone":"Europe/Moscow"}},{"trigger":"enter"}]""",
+            body["rules"].toString(),
+        )
     }
 
     // Тела — из `SqlAlchemyZoneService._session_json` (terentiy_ai, 2b81111).

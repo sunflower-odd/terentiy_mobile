@@ -69,7 +69,7 @@ class ErrorMapper @Inject constructor(private val json: Json) {
         // камера для пользователя означает то же самое: кадров с неё нет.
         "camera_unavailable", "agent_not_found" -> AppError.CameraUnavailable
         "zone_not_found" -> AppError.ZoneNotFound
-        "zone_version_conflict" -> AppError.ZoneConflict
+        "zone_version_conflict", "zone_revision_conflict" -> AppError.ZoneConflict
         "zone_binding_in_progress" -> AppError.ZoneBusy
         "zone_already_bound" -> AppError.ZoneAlreadyBound
         "binding_session_not_found" -> AppError.ZoneCheckNotFound

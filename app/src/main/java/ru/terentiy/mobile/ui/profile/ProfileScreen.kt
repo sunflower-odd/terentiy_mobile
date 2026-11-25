@@ -8,11 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -91,13 +90,14 @@ fun ProfileContent(
         )
     }
 
+    // Экран без прокрутки: всё на одной странице маленького телефона. Настройки
+    // собраны в одну карточку строками, выход — внизу.
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             text = stringResource(R.string.profile_title),
@@ -106,7 +106,7 @@ fun ProfileContent(
 
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -114,7 +114,7 @@ fun ProfileContent(
                     icon = IconPerson,
                     container = MaterialTheme.colorScheme.primaryContainer,
                     tint = MaterialTheme.colorScheme.primary,
-                    size = 52.dp,
+                    size = 44.dp,
                 )
                 Column {
                     Text(
@@ -128,86 +128,50 @@ fun ProfileContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
-            }
-        }
-
-        InfoCard(
-            title = stringResource(R.string.profile_server),
-            value = state.serverUrl,
-        )
-
-        Surface(
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenZones),
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(R.string.profile_zones),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = stringResource(R.string.zones_entry_hint),
+                        text = stringResource(R.string.profile_server_value, state.serverUrl),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Icon(
-                    imageVector = IconChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
 
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.profile_demo_mode),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = stringResource(R.string.profile_demo_mode_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Column {
+                SettingRow(
+                    title = stringResource(R.string.profile_zones),
+                    hint = stringResource(R.string.profile_zones_hint),
+                    modifier = Modifier.clickable(onClick = onOpenZones),
+                ) {
+                    Icon(
+                        imageVector = IconChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Switch(checked = state.demoMode, onCheckedChange = onDemoModeChange)
+                HorizontalDivider(color = MaterialTheme.colorScheme.background)
+                SettingRow(
+                    title = stringResource(R.string.profile_demo_mode),
+                    hint = stringResource(R.string.profile_demo_mode_hint),
+                ) {
+                    Switch(checked = state.demoMode, onCheckedChange = onDemoModeChange)
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.background)
+                SettingRow(
+                    title = stringResource(R.string.profile_media_cache),
+                    hint = stringResource(R.string.profile_media_cache_size, state.cacheMegabytes),
+                ) {
+                    TextButton(onClick = onClearCache, enabled = state.cacheMegabytes > 0) {
+                        Text(stringResource(R.string.profile_media_cache_clear))
+                    }
+                }
             }
         }
 
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.profile_media_cache),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = stringResource(R.string.profile_media_cache_size, state.cacheMegabytes),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                TextButton(onClick = onClearCache, enabled = state.cacheMegabytes > 0) {
-                    Text(stringResource(R.string.profile_media_cache_clear))
-                }
-            }
-        }
+        Spacer(Modifier.weight(1f))
 
         // Ограничение, о котором пользователь должен знать прямо, а не узнавать
         // из опыта: push-канала в контракте нет.
@@ -217,8 +181,6 @@ fun ProfileContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        Spacer(Modifier.height(8.dp))
-
         SecondaryButton(
             text = stringResource(R.string.profile_logout),
             onClick = { confirmLogout = true },
@@ -227,16 +189,29 @@ fun ProfileContent(
     }
 }
 
+/** Строка настроек: название, короткое пояснение в одну строку и элемент справа. */
 @Composable
-private fun InfoCard(title: String, value: String) {
-    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+private fun SettingRow(
+    title: String,
+    hint: String,
+    modifier: Modifier = Modifier,
+    trailing: @Composable () -> Unit,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.titleMedium)
             Text(
-                text = title,
+                text = hint,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Text(text = value, style = MaterialTheme.typography.titleMedium)
         }
+        trailing()
     }
 }
+
